@@ -1,0 +1,6 @@
+seen_jobs.json
+jobs.db
+reports/
+__pycache__/
+*.pyc
+Miguel_Garcia_CV_Espanol.pdf
