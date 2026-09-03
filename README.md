@@ -1,90 +1,93 @@
+🌐 English | [Español](README.es.md)
+
 # Job Radar
 
-Radar automático de ofertas de empleo en dos scripts, pensado para correr a
-diario (por ejemplo por cron en una Raspberry Pi) sin intervención manual
-salvo para revisar los resultados.
+Automatic job-offer radar in two scripts, meant to run daily (e.g. via cron
+on a Raspberry Pi) with no manual intervention other than reviewing the
+results.
 
-## Qué hace
+## What it does
 
-1. **Busca** ofertas nuevas vía [JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
-   (RapidAPI), que agrega LinkedIn, Indeed, Glassdoor y ZipRecruiter a partir
-   de Google for Jobs.
-2. **Descarta** las que ya se vieron en ejecuciones anteriores (`seen_jobs.json`,
-   local, no versionado).
-3. **Puntúa** cada oferta nueva con un LLM vía OpenRouter, comparándola con tu
-   CV/preferencias (definidos como texto en el propio script), y guarda un
-   score 0-100 con la razón.
-4. **Guarda** las ofertas con score ≥ 65 en `jobs.db` (SQLite) con
+1. **Searches** for new job offers via [JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
+   (RapidAPI), which aggregates LinkedIn, Indeed, Glassdoor and ZipRecruiter
+   through Google for Jobs.
+2. **Discards** offers already seen in previous runs (`seen_jobs.json`,
+   local, not version-controlled).
+3. **Scores** each new offer with an LLM via OpenRouter, comparing it against
+   your CV/preferences (defined as text in the script itself), and stores a
+   0-100 score with the reasoning.
+4. **Saves** offers with a score ≥ 65 into `jobs.db` (SQLite) with
    `status='active'`.
-5. **Revísalas** con `review_server.py`, un servidor web local sin
-   dependencias donde marcas cada oferta como "ya postulé" o "no interesado"
-   (con feedback opcional) y desaparece de la lista de activas.
+5. **Review** them with `review_server.py`, a dependency-free local web
+   server where you mark each offer as "applied" or "not interested" (with
+   optional feedback), removing it from the active list.
 
-## Uso
+## Usage
 
 ```bash
-export RAPIDAPI_KEY="tu_key_de_rapidapi"
-export OPENROUTER_API_KEY="tu_key_de_openrouter"
+export RAPIDAPI_KEY="your_rapidapi_key"
+export OPENROUTER_API_KEY="your_openrouter_key"
 pip install requests --break-system-packages
 
-python3 job_radar.py       # busca, puntúa y guarda matches nuevos
-python3 review_server.py   # abre http://127.0.0.1:8765 para revisar/actuar
+python3 job_radar.py       # search, score, and save new matches
+python3 review_server.py   # open http://127.0.0.1:8765 to review/act
 ```
 
-### Automatizarlo (cron diario)
+### Automating it (daily cron)
 
 ```
-0 8 * * * cd /ruta/al/script && /usr/bin/python3 job_radar.py >> radar.log 2>&1
+0 8 * * * cd /path/to/script && /usr/bin/python3 job_radar.py >> radar.log 2>&1
 ```
 
-No hay build ni tests: solo estándar de Python, salvo `requests` para
-`job_radar.py` (`review_server.py` es 100% librería estándar, sin JS en el
+No build, no tests: pure Python standard library, except `requests` for
+`job_radar.py` (`review_server.py` is 100% standard library, no JS on the
 frontend).
 
-## Arquitectura
+## Architecture
 
-**Búsqueda y scoring** (`job_radar.py`), pipeline lineal de tres pasos:
+**Search and scoring** (`job_radar.py`), a linear three-step pipeline:
 
-1. **Búsqueda** (`fetch_jobs`, `collect_all_jobs`) — llama a JSearch por cada
-   combinación de `SEARCH_QUERIES` × `SEARCH_COUNTRIES`.
-2. **Dedupe** (`load_seen_ids`, `save_seen_ids`) — compara `job_id` contra
-   `seen_jobs.json` para no reprocesar ofertas ya vistas.
-3. **Scoring** (`score_job`) — envía título/empresa/descripción junto con el
-   contexto de tu CV a OpenRouter, pidiendo un JSON `{"score": 0-100, "razon": "..."}`.
+1. **Search** (`fetch_jobs`, `collect_all_jobs`) — calls JSearch for every
+   combination of `SEARCH_QUERIES` × `SEARCH_COUNTRIES`.
+2. **Dedupe** (`load_seen_ids`, `save_seen_ids`) — compares `job_id` against
+   `seen_jobs.json` to avoid reprocessing offers already seen.
+3. **Scoring** (`score_job`) — sends title/company/description along with
+   your CV context to OpenRouter, requesting a JSON `{"score": 0-100, "razon": "..."}`.
 
-Las ofertas con `score >= 65` se guardan en `jobs.db` con `status='active'`.
-`main()` orquesta el flujo y persiste `seen_jobs.json` al final (incluyendo
-las que no superaron el umbral, para no reevaluarlas en la siguiente corrida).
+Offers with `score >= 65` are saved to `jobs.db` with `status='active'`.
+`main()` orchestrates the flow and persists `seen_jobs.json` at the end
+(including offers below the threshold, so they aren't re-evaluated on the
+next run).
 
-**Revisión interactiva** (`review_server.py`) — servidor HTTP local (stdlib,
-sin JS) que lee `jobs.db` y renderiza las ofertas activas como tarjetas con
-dos formularios cada una (POST a `/action`): "Ya postulé" y "No interesado"
-(con textarea de feedback). La acción actualiza `status`/`feedback`/`decided_at`
-en `jobs.db` y redirige (303) de vuelta a `/`.
+**Interactive review** (`review_server.py`) — a local HTTP server (stdlib,
+no JS) that reads `jobs.db` and renders active offers as cards with two
+forms each (POST to `/action`): "Applied" and "Not interested" (with a
+feedback textarea). The action updates `status`/`feedback`/`decided_at` in
+`jobs.db` and redirects (303) back to `/`.
 
-## Configuración
+## Configuration
 
-Toda la configuración está al principio de `job_radar.py`, como constantes en
-mayúsculas:
+All configuration lives at the top of `job_radar.py`, as uppercase
+constants:
 
-- `SEARCH_QUERIES` / `SEARCH_COUNTRIES` / `RESULTS_PER_QUERY` — qué buscar y
-  dónde.
-- `OPENROUTER_MODEL` — modelo usado para puntuar el encaje.
-- `CV_CONTEXT` — resumen de perfil/preferencias que el LLM usa para evaluar
-  cada oferta; edítalo aquí para cambiar el filtrado. El feedback de "no
-  interesado" no se inyecta automáticamente en el prompt — revísalo de vez en
-  cuando y ajusta `CV_CONTEXT` a mano si detectas un patrón.
+- `SEARCH_QUERIES` / `SEARCH_COUNTRIES` / `RESULTS_PER_QUERY` — what to
+  search for and where.
+- `OPENROUTER_MODEL` — model used to score the fit.
+- `CV_CONTEXT` — profile/preferences summary the LLM uses to evaluate each
+  offer; edit it here to change the filtering. "Not interested" feedback is
+  not automatically injected into the prompt — review it occasionally and
+  adjust `CV_CONTEXT` by hand if you spot a pattern.
 
-Las claves de API (`RAPIDAPI_KEY`, `OPENROUTER_API_KEY`) se leen solo de
-variables de entorno, nunca hardcodeadas.
+API keys (`RAPIDAPI_KEY`, `OPENROUTER_API_KEY`) are read only from
+environment variables, never hardcoded.
 
-## Notas
+## Notes
 
-- `jobs.db`, `seen_jobs.json` y `reports/` son estado local del usuario y no
-  se versionan (ver `.gitignore`).
-- `review_server.py` escucha solo en `127.0.0.1` por defecto — no expone nada
-  fuera de la máquina donde corre.
+- `jobs.db`, `seen_jobs.json` and `reports/` are local user state and are
+  not version-controlled (see `.gitignore`).
+- `review_server.py` listens only on `127.0.0.1` by default — it exposes
+  nothing outside the machine it runs on.
 
-## Licencia
+## License
 
 [MIT](LICENSE).
