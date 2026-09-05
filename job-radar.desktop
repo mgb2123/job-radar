@@ -2,7 +2,6 @@
 Type=Application
 Name=Job Radar
 Comment=Panel de radar de ofertas de empleo
-Exec=/usr/bin/python3 /home/m/buscadordecurro/gui.py
-Path=/home/m/buscadordecurro
+Exec=job-radar
 Terminal=false
-Categories=Utility;Office;
+Categories=Utility;
