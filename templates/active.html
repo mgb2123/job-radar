@@ -9,6 +9,26 @@
     <input type="checkbox" name="hide_lang_mismatch" value="1" onchange="this.form.submit()" {% if hide_lang_mismatch %}checked{% endif %}>
     Ocultar ofertas con idioma por encima de mi nivel
   </label>
+
+  <label>
+    País:
+    <select name="country" onchange="this.form.submit()">
+      <option value="">Todos</option>
+      {% for c in available_countries %}
+      <option value="{{ c }}" {% if country_filter == c %}selected{% endif %}>{{ c | flag_emoji }} {{ c }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>
+    Lista:
+    <select name="list_id" onchange="this.form.submit()">
+      <option value="">Todas</option>
+      {% for l in all_lists %}
+      <option value="{{ l.id }}" {% if list_filter == l.id|string %}selected{% endif %}>{{ l.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
 </form>
 
 {% if not jobs %}

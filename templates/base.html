@@ -13,6 +13,7 @@
   <a href="{{ url_for('history') }}" class="{{ 'active' if active_tab == 'history' }}">Historial</a>
   <a href="{{ url_for('lists_page') }}" class="{{ 'active' if active_tab == 'lists' }}">Listas</a>
   <a href="{{ url_for('stats') }}" class="{{ 'active' if active_tab == 'stats' }}">Estadísticas</a>
+  <a href="{{ url_for('costs') }}" class="{{ 'active' if active_tab == 'costs' }}">Coste</a>
   <a href="{{ url_for('config_edit') }}" class="{{ 'active' if active_tab == 'config' }}">Configuración</a>
 </nav>
 {% block content %}{% endblock %}

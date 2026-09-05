@@ -35,6 +35,7 @@ from pathlib import Path
 import requests
 
 from config import NIVELES_MCER, load_config
+from geo import infer_country
 from secrets_store import get_api_keys
 
 # ---------------------------------------------------------------------------
@@ -102,7 +103,7 @@ def collect_all_jobs(rapidapi_key: str) -> list[dict]:
                 job_id = j.get("job_id")
                 if job_id and job_id not in seen_ids_this_run:
                     seen_ids_this_run.add(job_id)
-                    j.setdefault("job_country", country.upper())
+                    j["job_country"] = j.get("job_country") or ("GB" if country.lower() == "uk" else country.upper())
                     all_jobs.append(j)
     return all_jobs
 
@@ -166,7 +167,14 @@ Descripcion: {description}
         timeout=60,
     )
     resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"].strip()
+    data = resp.json()
+    usage = data.get("usage") or {}
+    usage_info = {
+        "model": OPENROUTER_MODEL,
+        "tokens_in": usage.get("prompt_tokens"),
+        "tokens_out": usage.get("completion_tokens"),
+    }
+    content = data["choices"][0]["message"]["content"].strip()
     content = content.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         result = json.loads(content)
@@ -177,6 +185,7 @@ Descripcion: {description}
             "requisitos": "",
             "ofrece": "",
             "idiomas_requeridos": [],
+            "_usage": usage_info,
         }
     result.setdefault("requisitos", "")
     result.setdefault("ofrece", "")
@@ -186,6 +195,7 @@ Descripcion: {description}
         for i in idiomas
         if isinstance(i, dict) and str(i.get("idioma", "")).strip() and str(i.get("nivel", "")).strip().upper() in NIVELES_MCER
     ]
+    result["_usage"] = usage_info
     return result
 
 
@@ -252,6 +262,20 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER,
+                job_id TEXT,
+                model TEXT NOT NULL,
+                tokens_in INTEGER,
+                tokens_out INTEGER,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_created_at ON llm_calls(created_at)")
         # migraciones para DBs creadas antes de estas columnas
         _ensure_column(conn, "jobs", "run_id", "INTEGER")
         _ensure_column(conn, "jobs", "country", "TEXT")
@@ -260,6 +284,15 @@ def init_db() -> None:
         _ensure_column(conn, "jobs", "idiomas_requeridos", "TEXT")
         _ensure_column(conn, "runs", "queries", "TEXT")
         _ensure_column(conn, "runs", "countries", "TEXT")
+        _backfill_country_from_location(conn)
+
+
+def _backfill_country_from_location(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("SELECT job_id, location FROM jobs WHERE country IS NULL").fetchall()
+    for job_id, location in rows:
+        inferred = infer_country(location)
+        if inferred:
+            conn.execute("UPDATE jobs SET country = ? WHERE job_id = ?", (inferred, job_id))
 
 
 def save_active_jobs(scored_jobs: list[dict], run_id: int | None = None) -> None:
@@ -282,13 +315,30 @@ def save_active_jobs(scored_jobs: list[dict], run_id: int | None = None) -> None
                     j["razon"],
                     today,
                     run_id,
-                    j.get("job_country"),
+                    j.get("job_country") or infer_country(j.get("job_location")),
                     j.get("requisitos") or "",
                     j.get("ofrece") or "",
                     json.dumps(j.get("idiomas_requeridos") or [], ensure_ascii=False),
                 )
                 for j in scored_jobs
             ],
+        )
+
+
+def save_llm_call(run_id: int | None, job_id: str | None, usage: dict) -> None:
+    if usage.get("tokens_in") is None or usage.get("tokens_out") is None:
+        return  # OpenRouter no devolvio "usage" para esta llamada
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(
+            "INSERT INTO llm_calls (run_id, job_id, model, tokens_in, tokens_out, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                job_id,
+                usage["model"],
+                usage["tokens_in"],
+                usage["tokens_out"],
+                datetime.now().isoformat(timespec="seconds"),
+            ),
         )
 
 
@@ -411,6 +461,9 @@ def main():
         scored = []
         for j in new_jobs:
             result = score_job(j, openrouter_key)
+            usage = result.pop("_usage", None)
+            if usage:
+                save_llm_call(run_id, j.get("job_id"), usage)
             scored.append({**j, **result})
 
         # solo nos interesan matches con encaje minimo razonable

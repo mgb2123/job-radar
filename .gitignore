@@ -4,6 +4,7 @@ jobs.db
 jobs.db.bak-*
 config.json
 secrets.json
+pricing_cache.json
 reports/
 __pycache__/
 *.pyc

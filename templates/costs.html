@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Coste{% endblock %}
+{% block content %}
+<h1>Coste estimado (OpenRouter)</h1>
+<p class="empty">
+  Estimación aproximada a partir de los tokens que reporta OpenRouter y los precios
+  públicos de openrouter.ai (cacheados 24h). Solo incluye llamadas hechas desde que
+  se activó este seguimiento — no hay datos retroactivos de ejecuciones anteriores.
+</p>
+
+{% if not has_data %}
+<p class="empty">Todavía no hay datos de coste. Se registrarán en la próxima búsqueda que evalúe ofertas nuevas.</p>
+{% else %}
+
+<h2>Total</h2>
+<p>
+  Llamadas: <strong>{{ total_calls }}</strong> ·
+  Tokens entrada: <strong>{{ total_in }}</strong> ·
+  Tokens salida: <strong>{{ total_out }}</strong> ·
+  Coste estimado: <strong>${{ "%.4f"|format(total_cost) }}</strong>
+</p>
+{% if unknown_cost_models %}
+<p class="errors">
+  Sin precio conocido para: {{ unknown_cost_models|join(', ') }}
+  (red no disponible o modelo no listado en OpenRouter). El total no incluye estas llamadas.
+</p>
+{% endif %}
+
+<h2>Por semana</h2>
+<table>
+  <thead><tr><th>Semana</th><th>Llamadas</th><th>Tokens in</th><th>Tokens out</th><th>Coste</th></tr></thead>
+  <tbody>
+  {% for key, b in by_week %}
+    <tr><td>{{ key }}</td><td>{{ b.calls }}</td><td>{{ b.tokens_in }}</td><td>{{ b.tokens_out }}</td><td>${{ "%.4f"|format(b.cost) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Por mes</h2>
+<table>
+  <thead><tr><th>Mes</th><th>Llamadas</th><th>Tokens in</th><th>Tokens out</th><th>Coste</th></tr></thead>
+  <tbody>
+  {% for key, b in by_month %}
+    <tr><td>{{ key }}</td><td>{{ b.calls }}</td><td>{{ b.tokens_in }}</td><td>{{ b.tokens_out }}</td><td>${{ "%.4f"|format(b.cost) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Por modelo</h2>
+<table>
+  <thead><tr><th>Modelo</th><th>Llamadas</th><th>Tokens in</th><th>Tokens out</th><th>Coste</th></tr></thead>
+  <tbody>
+  {% for model, b in by_model %}
+    <tr><td>{{ model }}</td><td>{{ b.calls }}</td><td>{{ b.tokens_in }}</td><td>{{ b.tokens_out }}</td><td>${{ "%.4f"|format(b.cost) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% endif %}
+{% endblock %}

@@ -40,6 +40,7 @@ from flask import Flask, Response, abort, redirect, render_template, request, ur
 
 from config import NIVELES_MCER, load_config, nivel_index, save_config
 from job_radar import DB_FILE, init_db
+from pricing import price_per_million
 from secrets_store import load_secrets, save_secrets
 
 HOST = "127.0.0.1"
@@ -135,6 +136,9 @@ def attach_language_flags(jobs: list[dict], user_langs: dict[str, str]) -> None:
 @app.route("/")
 def active():
     hide_lang_mismatch = request.args.get("hide_lang_mismatch") == "1"
+    country_filter = request.args.get("country", "").strip().upper()
+    list_filter = request.args.get("list_id", "").strip()
+
     with get_db() as conn:
         jobs = [dict(r) for r in conn.execute(
             "SELECT * FROM jobs WHERE status = 'active' ORDER BY score DESC"
@@ -142,13 +146,23 @@ def active():
         attach_lists(conn, jobs)
         attach_language_flags(jobs, user_languages(load_config()))
         lists = all_lists(conn)
+        available_countries = sorted({j["country"] for j in jobs if j["country"]})
+
     if hide_lang_mismatch:
         jobs = [j for j in jobs if not any(c["cumple"] is False for c in j["idiomas_check"])]
+    if country_filter:
+        jobs = [j for j in jobs if j["country"] == country_filter]
+    if list_filter:
+        jobs = [j for j in jobs if any(str(l["id"]) == list_filter for l in j["lists"])]
+
     return render_template(
         "active.html",
         jobs=jobs,
         all_lists=lists,
+        available_countries=available_countries,
         hide_lang_mismatch=hide_lang_mismatch,
+        country_filter=country_filter,
+        list_filter=list_filter,
         active_tab="active",
     )
 
@@ -297,6 +311,66 @@ def stats():
         recent_runs=recent_runs,
         last_seen=last_seen,
         active_tab="stats",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Coste — estimacion aproximada a partir de los tokens de cada llamada al LLM
+# ---------------------------------------------------------------------------
+
+@app.route("/costs")
+def costs():
+    with get_db() as conn:
+        calls = conn.execute(
+            "SELECT model, tokens_in, tokens_out, created_at FROM llm_calls ORDER BY created_at"
+        ).fetchall()
+
+    def _new_bucket():
+        return {"calls": 0, "tokens_in": 0, "tokens_out": 0, "cost": 0.0}
+
+    total_in = total_out = 0
+    total_cost = 0.0
+    unknown_cost_models = set()
+    by_week = defaultdict(_new_bucket)
+    by_month = defaultdict(_new_bucket)
+    by_model = defaultdict(_new_bucket)
+
+    for c in calls:
+        price_in, price_out = price_per_million(c["model"])
+        if price_in is not None:
+            cost = (c["tokens_in"] / 1_000_000) * price_in + (c["tokens_out"] / 1_000_000) * price_out
+        else:
+            cost = None
+            unknown_cost_models.add(c["model"])
+
+        dt = datetime.fromisoformat(c["created_at"])
+        iso_year, iso_week, _ = dt.isocalendar()
+        week_key = f"{iso_year}-W{iso_week:02d}"
+        month_key = dt.strftime("%Y-%m")
+
+        total_in += c["tokens_in"]
+        total_out += c["tokens_out"]
+        total_cost += cost or 0
+
+        for bucket, key in ((by_week, week_key), (by_month, month_key), (by_model, c["model"])):
+            b = bucket[key]
+            b["calls"] += 1
+            b["tokens_in"] += c["tokens_in"]
+            b["tokens_out"] += c["tokens_out"]
+            b["cost"] += cost or 0
+
+    return render_template(
+        "costs.html",
+        has_data=bool(calls),
+        total_calls=len(calls),
+        total_in=total_in,
+        total_out=total_out,
+        total_cost=total_cost,
+        by_week=sorted(by_week.items(), reverse=True),
+        by_month=sorted(by_month.items(), reverse=True),
+        by_model=sorted(by_model.items()),
+        unknown_cost_models=sorted(unknown_cost_models),
+        active_tab="costs",
     )
 
 
