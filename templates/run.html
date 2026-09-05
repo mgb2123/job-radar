@@ -1,14 +1,49 @@
 {% extends "base.html" %}
+{% from "_job_card.html" import job_card %}
 {% block title %}Lanzar búsqueda{% endblock %}
 {% block content %}
 <h1>Lanzar búsqueda</h1>
 
-<form method="post" action="{{ url_for('run_start') }}">
+<form method="post" action="{{ url_for('run_start') }}" class="form-panel">
+  <div class="field">
+    <label for="queries">Búsquedas (opcional — una por línea)</label>
+    <p class="hint">Vacío = usar todas las de la pestaña Configuración.</p>
+    <textarea id="queries" name="queries" rows="3" placeholder="ej. automation engineer" {{ 'disabled' if running }}></textarea>
+  </div>
+
+  <div class="field">
+    <label>Países (opcional)</label>
+    <p class="hint">Vacío = usar todos los de la pestaña Configuración.</p>
+    {% for c in cfg.search_countries %}
+    <label style="display:inline-block; margin-right: .8rem; font-weight: normal;">
+      <input type="checkbox" name="countries" value="{{ c }}" {{ 'disabled' if running }}> {{ c|upper }}
+    </label>
+    {% endfor %}
+    <input type="text" name="countries_extra" placeholder="otros países, separados por coma" {{ 'disabled' if running }}>
+  </div>
+
+  <div class="field">
+    <label for="results_per_query">Resultados por búsqueda (opcional)</label>
+    <input type="number" id="results_per_query" name="results_per_query" min="1" max="100"
+           placeholder="{{ cfg.results_per_query }}" {{ 'disabled' if running }}>
+  </div>
+
   <button type="submit" id="start-btn" {{ 'disabled' if running }}>{{ 'Búsqueda en curso…' if running else 'Buscar ahora' }}</button>
 </form>
 
 <h2>Log</h2>
 <pre id="log">{{ log_lines | join('\n') }}</pre>
+
+{% if run_id and not running %}
+<h2>Resultados de esta búsqueda</h2>
+{% if not results %}
+<p class="empty">Esta corrida no guardó ninguna oferta nueva (nada nuevo, o ninguna superó el umbral).</p>
+{% else %}
+<div class="job-grid">
+{% for j in results %}{{ job_card(j, all_lists) }}{% endfor %}
+</div>
+{% endif %}
+{% endif %}
 
 <script>
   window.INITIAL_LOG_COUNT = {{ log_lines | length }};

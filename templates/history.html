@@ -8,17 +8,18 @@
 {% else %}
 <table>
   <thead>
-    <tr><th>Título</th><th>Empresa</th><th>Score</th><th>Estado</th><th>Decidido</th><th>Feedback</th></tr>
+    <tr><th>Título</th><th>Empresa</th><th>Score</th><th>Estado</th><th>Decidido</th><th>Feedback</th><th>Listas</th></tr>
   </thead>
   <tbody>
   {% for j in jobs %}
     <tr>
-      <td><a href="{{ j.link }}" target="_blank" rel="noopener">{{ j.title }}</a></td>
+      <td>{{ j.country | flag_emoji }} <a href="{{ j.link }}" target="_blank" rel="noopener">{{ j.title }}</a></td>
       <td>{{ j.company }}</td>
       <td>{{ j.score }}</td>
       <td><span class="badge {{ j.status }}">{{ 'Aplicada' if j.status == 'applied' else 'Rechazada' }}</span></td>
       <td>{{ j.decided_at or '' }}</td>
       <td>{{ j.feedback or '' }}</td>
+      <td>{% for l in j.lists %}<span class="badge list-badge">{{ l.name }}</span> {% endfor %}</td>
     </tr>
   {% endfor %}
   </tbody>

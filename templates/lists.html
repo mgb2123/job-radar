@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Listas{% endblock %}
+{% block content %}
+<h1>Listas</h1>
+
+<form method="post" action="{{ url_for('lists_create') }}">
+  <input type="text" name="name" placeholder="Nombre de la nueva lista" required>
+  <button type="submit">Crear lista</button>
+</form>
+
+{% if not lists %}
+<p class="empty">Todavía no has creado ninguna lista. Puedes crear una desde aquí, o directamente desde una oferta en Activas/Historial.</p>
+{% else %}
+<table>
+  <thead><tr><th>Nombre</th><th>Ofertas</th><th></th></tr></thead>
+  <tbody>
+  {% for l in lists %}
+    <tr>
+      <td><a href="{{ url_for('list_detail', list_id=l.id) }}">{{ l.name }}</a></td>
+      <td>{{ l.job_count }}</td>
+      <td>
+        <form method="post" action="{{ url_for('lists_delete', list_id=l.id) }}"
+              onsubmit="return confirm('¿Borrar la lista «{{ l.name }}»? Las ofertas no se eliminan, solo la lista.');">
+          <button type="submit">Borrar</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

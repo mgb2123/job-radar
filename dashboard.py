@@ -8,11 +8,16 @@ codigo ni cron a mano dia a dia:
 
   - Activas      — revisar ofertas nuevas y marcarlas aplicada/rechazada
                     (reemplaza a review_server.py).
-  - Lanzar busqueda — correr job_radar.py bajo demanda, con el log en vivo.
+  - Lanzar busqueda — correr job_radar.py bajo demanda, con filtros propios
+                    (queries/paises solo para esa corrida) y el log en vivo;
+                    al terminar, muestra unicamente los resultados de esa
+                    busqueda.
   - Historial    — ofertas ya decididas, con su feedback.
   - Estadisticas — contadores, distribucion de scores, ultima ejecucion.
   - Configuracion — editar CV/preferencias y parametros de busqueda sin
                     tocar codigo (persiste en config.json).
+  - Listas       — etiquetas para organizar ofertas (una oferta puede estar
+                    en varias listas a la vez), independientes de su status.
 
 Como correrlo:
   pip install -r requirements.txt --break-system-packages
@@ -20,18 +25,21 @@ Como correrlo:
 """
 
 import os
+import re
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, Response, redirect, render_template, request, url_for
+from flask import Flask, Response, abort, redirect, render_template, request, url_for
 
 from config import load_config, save_config
 from job_radar import DB_FILE, init_db
+from secrets_store import load_secrets, save_secrets
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -41,10 +49,42 @@ JOB_RADAR_PATH = BASE_DIR / "job_radar.py"
 app = Flask(__name__)
 
 
+@app.template_filter("flag_emoji")
+def flag_emoji(country_code):
+    if not country_code or len(country_code) != 2 or not country_code.isalpha():
+        return ""
+    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in country_code.upper())
+
+
 def get_db():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def attach_lists(conn, jobs: list[dict]) -> None:
+    """Anade una clave 'lists' (lista de {id, name}) a cada job in-place."""
+    job_ids = [j["job_id"] for j in jobs]
+    by_job = defaultdict(list)
+    if job_ids:
+        placeholders = ",".join("?" * len(job_ids))
+        rows = conn.execute(
+            f"""
+            SELECT jl.job_id, l.id, l.name FROM job_lists jl
+            JOIN lists l ON l.id = jl.list_id
+            WHERE jl.job_id IN ({placeholders})
+            ORDER BY l.name
+            """,
+            job_ids,
+        ).fetchall()
+        for r in rows:
+            by_job[r["job_id"]].append({"id": r["id"], "name": r["name"]})
+    for j in jobs:
+        j["lists"] = by_job.get(j["job_id"], [])
+
+
+def all_lists(conn):
+    return conn.execute("SELECT * FROM lists ORDER BY name").fetchall()
 
 
 # ---------------------------------------------------------------------------
@@ -54,10 +94,12 @@ def get_db():
 @app.route("/")
 def active():
     with get_db() as conn:
-        jobs = conn.execute(
+        jobs = [dict(r) for r in conn.execute(
             "SELECT * FROM jobs WHERE status = 'active' ORDER BY score DESC"
-        ).fetchall()
-    return render_template("active.html", jobs=jobs, active_tab="active")
+        ).fetchall()]
+        attach_lists(conn, jobs)
+        lists = all_lists(conn)
+    return render_template("active.html", jobs=jobs, all_lists=lists, active_tab="active")
 
 
 @app.route("/action", methods=["POST"])
@@ -76,15 +118,102 @@ def action():
 
 
 # ---------------------------------------------------------------------------
+# Listas — etiquetas para organizar ofertas (independientes de status)
+# ---------------------------------------------------------------------------
+
+@app.route("/lists")
+def lists_page():
+    with get_db() as conn:
+        lists = conn.execute(
+            """
+            SELECT l.id, l.name, l.created_at, COUNT(jl.job_id) AS job_count
+            FROM lists l LEFT JOIN job_lists jl ON jl.list_id = l.id
+            GROUP BY l.id ORDER BY l.name
+            """
+        ).fetchall()
+    return render_template("lists.html", lists=lists, active_tab="lists")
+
+
+@app.route("/lists/create", methods=["POST"])
+def lists_create():
+    name = request.form.get("name", "").strip()
+    if name:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO lists (name, created_at) VALUES (?, ?)",
+                (name, datetime.now().isoformat(timespec="seconds")),
+            )
+    return redirect(url_for("lists_page"))
+
+
+@app.route("/lists/<int:list_id>")
+def list_detail(list_id):
+    with get_db() as conn:
+        list_row = conn.execute("SELECT * FROM lists WHERE id = ?", (list_id,)).fetchone()
+        if list_row is None:
+            abort(404)
+        jobs = [dict(r) for r in conn.execute(
+            """
+            SELECT j.* FROM jobs j
+            JOIN job_lists jl ON jl.job_id = j.job_id
+            WHERE jl.list_id = ? ORDER BY jl.added_at DESC
+            """,
+            (list_id,),
+        ).fetchall()]
+        attach_lists(conn, jobs)
+        lists = all_lists(conn)
+    return render_template("list_detail.html", the_list=list_row, jobs=jobs, all_lists=lists, active_tab="lists")
+
+
+@app.route("/lists/<int:list_id>/delete", methods=["POST"])
+def lists_delete(list_id):
+    with get_db() as conn:
+        conn.execute("DELETE FROM job_lists WHERE list_id = ?", (list_id,))
+        conn.execute("DELETE FROM lists WHERE id = ?", (list_id,))
+    return redirect(url_for("lists_page"))
+
+
+@app.route("/joblists/add", methods=["POST"])
+def job_lists_add():
+    job_id = request.form.get("job_id")
+    name = (request.form.get("new_list_name") or request.form.get("list_name") or "").strip()
+    next_url = request.form.get("next") or url_for("active")
+    if job_id and name:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO lists (name, created_at) VALUES (?, ?)",
+                (name, datetime.now().isoformat(timespec="seconds")),
+            )
+            list_id = conn.execute("SELECT id FROM lists WHERE name = ?", (name,)).fetchone()["id"]
+            conn.execute(
+                "INSERT OR IGNORE INTO job_lists (job_id, list_id, added_at) VALUES (?, ?, ?)",
+                (job_id, list_id, datetime.now().isoformat(timespec="seconds")),
+            )
+    return redirect(next_url)
+
+
+@app.route("/joblists/remove", methods=["POST"])
+def job_lists_remove():
+    job_id = request.form.get("job_id")
+    list_id = request.form.get("list_id")
+    next_url = request.form.get("next") or url_for("active")
+    if job_id and list_id:
+        with get_db() as conn:
+            conn.execute("DELETE FROM job_lists WHERE job_id = ? AND list_id = ?", (job_id, list_id))
+    return redirect(next_url)
+
+
+# ---------------------------------------------------------------------------
 # Historial
 # ---------------------------------------------------------------------------
 
 @app.route("/history")
 def history():
     with get_db() as conn:
-        jobs = conn.execute(
+        jobs = [dict(r) for r in conn.execute(
             "SELECT * FROM jobs WHERE status IN ('applied', 'rejected') ORDER BY decided_at DESC"
-        ).fetchall()
+        ).fetchall()]
+        attach_lists(conn, jobs)
     return render_template("history.html", jobs=jobs, active_tab="history")
 
 
@@ -195,16 +324,49 @@ def config_edit():
 
 
 # ---------------------------------------------------------------------------
+# Claves API — guardadas localmente, sin depender de exportarlas a mano
+# ---------------------------------------------------------------------------
+
+@app.route("/keys", methods=["GET", "POST"])
+def keys_edit():
+    if request.method == "POST":
+        current = load_secrets()
+        rapidapi_key = request.form.get("rapidapi_key", "").strip()
+        openrouter_key = request.form.get("openrouter_key", "").strip()
+        # campo vacio = no tocar el valor ya guardado (evita borrar sin querer)
+        save_secrets({
+            "rapidapi_key": rapidapi_key or current.get("rapidapi_key", ""),
+            "openrouter_key": openrouter_key or current.get("openrouter_key", ""),
+        })
+        return redirect(url_for("keys_edit", saved=1))
+
+    stored = load_secrets()
+    return render_template(
+        "keys_edit.html",
+        stored_rapidapi=bool(stored.get("rapidapi_key")),
+        stored_openrouter=bool(stored.get("openrouter_key")),
+        env_rapidapi=bool(os.environ.get("RAPIDAPI_KEY")),
+        env_openrouter=bool(os.environ.get("OPENROUTER_API_KEY")),
+        saved=request.args.get("saved") == "1",
+        active_tab="keys",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Lanzar busqueda + streaming de log
 # ---------------------------------------------------------------------------
 
 _run_lock = threading.Lock()
-_run_state = {"process": None, "running": False, "log_lines": []}
+_run_state = {"process": None, "running": False, "log_lines": [], "run_id": None}
+_RUN_ID_RE = re.compile(r"^\[run (\d+)\]")
 
 
 def _reader_thread(proc):
     for line in proc.stdout:
+        m = _RUN_ID_RE.match(line)
         with _run_lock:
+            if m:
+                _run_state["run_id"] = int(m.group(1))
             _run_state["log_lines"].append(line.rstrip("\n"))
     proc.wait()
     with _run_lock:
@@ -217,17 +379,51 @@ def run_page():
     with _run_lock:
         running = _run_state["running"]
         log_lines = list(_run_state["log_lines"])
-    return render_template("run.html", running=running, log_lines=log_lines, active_tab="run")
+        run_id = _run_state["run_id"]
+
+    results = []
+    with get_db() as conn:
+        if run_id and not running:
+            results = [dict(r) for r in conn.execute(
+                "SELECT * FROM jobs WHERE run_id = ? ORDER BY score DESC", (run_id,)
+            ).fetchall()]
+            attach_lists(conn, results)
+        lists = all_lists(conn)
+
+    cfg = load_config()
+    return render_template(
+        "run.html",
+        running=running,
+        log_lines=log_lines,
+        run_id=run_id,
+        results=results,
+        all_lists=lists,
+        cfg=cfg,
+        active_tab="run",
+    )
 
 
 @app.route("/run/start", methods=["POST"])
 def run_start():
-    import subprocess
+    queries_raw = request.form.get("queries", "").strip()
+    countries_checked = request.form.getlist("countries")
+    countries_extra = [c.strip() for c in request.form.get("countries_extra", "").split(",") if c.strip()]
+    results_per_query = request.form.get("results_per_query", "").strip()
 
     with _run_lock:
         if _run_state["running"]:
             return redirect(url_for("run_page"))
+
         cmd = [sys.executable, str(JOB_RADAR_PATH)]
+        if queries_raw:
+            queries = [q.strip() for q in queries_raw.splitlines() if q.strip()]
+            cmd += ["--queries", "|".join(queries)]
+        countries = countries_checked + countries_extra
+        if countries:
+            cmd += ["--countries", ",".join(countries)]
+        if results_per_query:
+            cmd += ["--results-per-query", results_per_query]
+
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -239,6 +435,7 @@ def run_start():
         _run_state["process"] = proc
         _run_state["running"] = True
         _run_state["log_lines"] = []
+        _run_state["run_id"] = None
         threading.Thread(target=_reader_thread, args=(proc,), daemon=True).start()
     return redirect(url_for("run_page"))
 

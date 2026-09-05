@@ -1,9 +1,13 @@
 seen_jobs.json
+seen_jobs.json.bak-*
 jobs.db
+jobs.db.bak-*
 config.json
+secrets.json
 reports/
 __pycache__/
 *.pyc
 Miguel_Garcia_CV_Espanol.pdf
+Miguel_Garcia_CV_English.pdf
 CLAUDE.md
 *.log

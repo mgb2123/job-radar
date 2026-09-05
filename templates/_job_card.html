@@ -1,0 +1,56 @@
+{% macro job_card(j, all_lists) %}
+<div class="job">
+  <h3>{{ j.country | flag_emoji }} {{ j.title }} — {{ j.company }} (score: {{ j.score }})</h3>
+  <div class="meta">{{ j.location or "N/D" }} · visto: {{ j.first_seen or "" }}</div>
+  <div class="razon">{{ j.razon }}</div>
+  <p><a href="{{ j.link }}" target="_blank" rel="noopener">Ver oferta</a></p>
+
+  {% if j.requisitos or j.ofrece %}
+  <details class="job-details">
+    <summary>Requisitos y qué ofrecen</summary>
+    {% if j.requisitos %}<p><strong>Piden:</strong> {{ j.requisitos }}</p>{% endif %}
+    {% if j.ofrece %}<p><strong>Ofrece:</strong> {{ j.ofrece }}</p>{% endif %}
+  </details>
+  {% endif %}
+
+  {% if j.status == 'active' %}
+  <form method="post" action="{{ url_for('action') }}">
+    <input type="hidden" name="job_id" value="{{ j.job_id }}">
+    <input type="hidden" name="action" value="applied">
+    <button type="submit">Ya postulé</button>
+  </form>
+  <form method="post" action="{{ url_for('action') }}">
+    <input type="hidden" name="job_id" value="{{ j.job_id }}">
+    <input type="hidden" name="action" value="rejected">
+    <textarea name="feedback" rows="2" placeholder="¿Por qué no te interesa? (opcional)"></textarea>
+    <button type="submit">No interesado</button>
+  </form>
+  {% else %}
+  <span class="badge {{ j.status }}">{{ 'Aplicada' if j.status == 'applied' else 'Rechazada' }}</span>
+  {% if j.feedback %}<div class="feedback">{{ j.feedback }}</div>{% endif %}
+  {% endif %}
+
+  <div class="lists">
+    {% for l in j.lists %}
+    <span class="badge list-badge">{{ l.name }}
+      <form method="post" action="{{ url_for('job_lists_remove') }}" style="display:inline; margin:0;">
+        <input type="hidden" name="job_id" value="{{ j.job_id }}">
+        <input type="hidden" name="list_id" value="{{ l.id }}">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" title="Quitar de esta lista">×</button>
+      </form>
+    </span>
+    {% endfor %}
+    <form method="post" action="{{ url_for('job_lists_add') }}" class="add-list-form">
+      <input type="hidden" name="job_id" value="{{ j.job_id }}">
+      <input type="hidden" name="next" value="{{ request.path }}">
+      <select name="list_name">
+        <option value="">— añadir a lista existente —</option>
+        {% for l in all_lists %}<option value="{{ l.name }}">{{ l.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="new_list_name" placeholder="o nombre de lista nueva" size="16">
+      <button type="submit">+ lista</button>
+    </form>
+  </div>
+</div>
+{% endmacro %}

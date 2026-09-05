@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% from "_job_card.html" import job_card %}
-{% block title %}Ofertas activas{% endblock %}
+{% block title %}{{ the_list.name }}{% endblock %}
 {% block content %}
-<h1>Ofertas activas</h1>
+<p><a href="{{ url_for('lists_page') }}">← Listas</a></p>
+<h1>{{ the_list.name }}</h1>
 
 {% if not jobs %}
-<p class="empty">No hay ofertas activas pendientes de revisar.</p>
+<p class="empty">Esta lista está vacía todavía.</p>
 {% else %}
 <div class="job-grid">
 {% for j in jobs %}{{ job_card(j, all_lists) }}{% endfor %}

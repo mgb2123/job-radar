@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Job Radar
+Comment=Panel de radar de ofertas de empleo
+Exec=/usr/bin/python3 /home/m/buscadordecurro/gui.py
+Path=/home/m/buscadordecurro
+Terminal=false
+Categories=Utility;Office;

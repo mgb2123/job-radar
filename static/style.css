@@ -1,4 +1,7 @@
-body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+body { font-family: system-ui, sans-serif; max-width: 1400px; margin: 2rem auto; padding: 0 1.5rem; }
+
+.job-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1rem; align-items: start; }
+.job-grid .job { margin-bottom: 0; }
 
 .nav { display: flex; gap: 1rem; border-bottom: 1px solid #ccc; padding-bottom: .8rem; margin-bottom: 1.5rem; }
 .nav a { text-decoration: none; color: #333; font-weight: 500; }
@@ -32,9 +35,22 @@ th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #eee; }
 .bar-track { flex: 1; background: #eee; border-radius: 4px; overflow: hidden; height: 1rem; }
 .bar-fill { background: #06c; height: 100%; }
 
+.job-details { margin-top: .6rem; border-top: 1px solid #eee; padding-top: .5rem; }
+.job-details summary { cursor: pointer; color: #06c; font-size: .9rem; }
+.job-details p { margin: .4rem 0; font-size: .9rem; }
+
 .errors { color: #c53030; margin-bottom: 1rem; }
 .field { margin-bottom: 1.2rem; }
 .field label { font-weight: 600; display: block; margin-bottom: .2rem; }
 .hint { color: #666; font-size: .85rem; margin: 0 0 .3rem; }
 
+.form-panel { max-width: 640px; }
+
 #log { background: #111; color: #ddd; padding: 1rem; border-radius: 6px; min-height: 200px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; }
+
+.lists { margin-top: .8rem; }
+.list-badge { background: #444; display: inline-flex; align-items: center; gap: .3rem; margin: 0 .3rem .4rem 0; }
+.list-badge button { background: none; border: none; color: #fff; cursor: pointer; padding: 0 0 0 .2rem; font-size: 1rem; line-height: 1; }
+.add-list-form { display: inline-flex; gap: .4rem; align-items: center; margin: 0; }
+.add-list-form select, .add-list-form input[type=text] { display: inline-block; width: auto; margin: 0; padding: .2rem; }
+.add-list-form button { padding: .2rem .6rem; }

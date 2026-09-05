@@ -10,7 +10,7 @@
 </div>
 {% endif %}
 
-<form method="post">
+<form method="post" class="form-panel">
   <div class="field">
     <label for="search_queries">Búsquedas (una por línea)</label>
     <textarea id="search_queries" name="search_queries" rows="6">{{ cfg.search_queries | join('\n') }}</textarea>

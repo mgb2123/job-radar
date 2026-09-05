@@ -23,16 +23,19 @@ Para automatizarlo en tu RPi4/PC (ej. cron diario a las 8am):
   0 8 * * * cd /ruta/al/script && /usr/bin/python3 job_radar.py >> radar.log 2>&1
 """
 
+import argparse
 import json
 import os
 import sqlite3
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 import requests
 
 from config import load_config
+from secrets_store import get_api_keys
 
 # ---------------------------------------------------------------------------
 # CONFIGURACION — editable desde el dashboard (pestana "Configuracion") o a
@@ -67,9 +70,21 @@ def fetch_jobs(query: str, country: str, rapidapi_key: str) -> list[dict]:
         "country": country,
         "date_posted": "all",
     }
-    resp = requests.get(url, headers=headers, params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json().get("data", {}).get("jobs", [])
+    last_error = None
+    for intento in range(3):
+        if intento > 0:
+            print(f"  timeout, reintentando '{query}'/'{country}' ({intento + 1}/3)...", flush=True)
+        try:
+            t0 = time.monotonic()
+            resp = requests.get(url, headers=headers, params=params, timeout=30)
+            resp.raise_for_status()
+            print(f"  ok ({time.monotonic() - t0:.1f}s)", flush=True)
+            return resp.json().get("data", {}).get("jobs", [])
+        except requests.exceptions.Timeout as e:
+            last_error = e
+            if intento < 2:
+                time.sleep(5 * (intento + 1))
+    raise last_error
 
 
 def collect_all_jobs(rapidapi_key: str) -> list[dict]:
@@ -77,15 +92,17 @@ def collect_all_jobs(rapidapi_key: str) -> list[dict]:
     seen_ids_this_run = set()
     for q in SEARCH_QUERIES:
         for country in SEARCH_COUNTRIES:
+            print(f"Buscando '{q}' en '{country}'...", flush=True)
             try:
                 jobs = fetch_jobs(q, country, rapidapi_key)
             except requests.RequestException as e:
-                print(f"[aviso] fallo buscando '{q}' en '{country}': {e}", file=sys.stderr)
+                print(f"[aviso] fallo buscando '{q}' en '{country}': {e}", file=sys.stderr, flush=True)
                 continue
             for j in jobs[:RESULTS_PER_QUERY]:
                 job_id = j.get("job_id")
                 if job_id and job_id not in seen_ids_this_run:
                     seen_ids_this_run.add(job_id)
+                    j.setdefault("job_country", country.upper())
                     all_jobs.append(j)
     return all_jobs
 
@@ -118,7 +135,7 @@ def score_job(job: dict, openrouter_key: str) -> dict:
 
 Evalua esta oferta de trabajo y responde SOLO con un JSON, sin texto adicional,
 con este formato exacto:
-{{"score": <0-100>, "razon": "<explicacion breve, 1-2 frases>"}}
+{{"score": <0-100>, "razon": "<explicacion breve, 1-2 frases>", "requisitos": "<resumen breve de los requisitos/requerimientos del puesto segun la descripcion>", "ofrece": "<resumen breve de lo que ofrece la empresa (salario, beneficios, remoto, etc.); cadena vacia si la descripcion no lo menciona>"}}
 
 Oferta:
 Puesto: {title}
@@ -142,14 +159,23 @@ Descripcion: {description}
     content = resp.json()["choices"][0]["message"]["content"].strip()
     content = content.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
-        return json.loads(content)
+        result = json.loads(content)
     except json.JSONDecodeError:
-        return {"score": 0, "razon": "no se pudo evaluar (respuesta no valida)"}
+        return {"score": 0, "razon": "no se pudo evaluar (respuesta no valida)", "requisitos": "", "ofrece": ""}
+    result.setdefault("requisitos", "")
+    result.setdefault("ofrece", "")
+    return result
 
 
 # ---------------------------------------------------------------------------
 # 4. BASE DE DATOS DE OFERTAS ACTIVAS
 # ---------------------------------------------------------------------------
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
 
 def init_db() -> None:
     with sqlite3.connect(DB_FILE) as conn:
@@ -185,16 +211,42 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_lists (
+                job_id TEXT NOT NULL,
+                list_id INTEGER NOT NULL,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY (job_id, list_id)
+            )
+            """
+        )
+        # migraciones para DBs creadas antes de estas columnas
+        _ensure_column(conn, "jobs", "run_id", "INTEGER")
+        _ensure_column(conn, "jobs", "country", "TEXT")
+        _ensure_column(conn, "jobs", "requisitos", "TEXT")
+        _ensure_column(conn, "jobs", "ofrece", "TEXT")
+        _ensure_column(conn, "runs", "queries", "TEXT")
+        _ensure_column(conn, "runs", "countries", "TEXT")
 
 
-def save_active_jobs(scored_jobs: list[dict]) -> None:
+def save_active_jobs(scored_jobs: list[dict], run_id: int | None = None) -> None:
     today = datetime.now().strftime("%Y-%m-%d")
     with sqlite3.connect(DB_FILE) as conn:
         conn.executemany(
             """
             INSERT OR IGNORE INTO jobs
-                (job_id, title, company, location, link, score, razon, status, first_seen)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                (job_id, title, company, location, link, score, razon, status, first_seen, run_id, country, requisitos, ofrece)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -206,6 +258,10 @@ def save_active_jobs(scored_jobs: list[dict]) -> None:
                     j["score"],
                     j["razon"],
                     today,
+                    run_id,
+                    j.get("job_country"),
+                    j.get("requisitos") or "",
+                    j.get("ofrece") or "",
                 )
                 for j in scored_jobs
             ],
@@ -222,11 +278,16 @@ def count_active_jobs() -> int:
 #    (protege tanto cron+cron como cron+dashboard como dashboard+dashboard)
 # ---------------------------------------------------------------------------
 
-def start_run() -> int:
+def start_run(queries: list[str] | None = None, countries: list[str] | None = None) -> int:
     with sqlite3.connect(DB_FILE) as conn:
         cur = conn.execute(
-            "INSERT INTO runs (started_at, status, pid) VALUES (?, 'running', ?)",
-            (datetime.now().isoformat(timespec="seconds"), os.getpid()),
+            "INSERT INTO runs (started_at, status, pid, queries, countries) VALUES (?, 'running', ?, ?, ?)",
+            (
+                datetime.now().isoformat(timespec="seconds"),
+                os.getpid(),
+                json.dumps(queries) if queries else None,
+                json.dumps(countries) if countries else None,
+            ),
         )
         return cur.lastrowid
 
@@ -269,18 +330,48 @@ def _check_no_concurrent_run() -> None:
 # MAIN
 # ---------------------------------------------------------------------------
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Job radar - busqueda y scoring de ofertas")
+    parser.add_argument(
+        "--queries",
+        help="Busquedas para ESTA corrida, separadas por '|' (override puntual, no toca config.json)",
+    )
+    parser.add_argument(
+        "--countries",
+        help="Codigos ISO de pais para ESTA corrida, separados por coma (override puntual)",
+    )
+    parser.add_argument(
+        "--results-per-query",
+        type=int,
+        help="Resultados por busqueda para ESTA corrida (override puntual)",
+    )
+    return parser.parse_args(argv)
+
+
 def main():
-    rapidapi_key = os.environ.get("RAPIDAPI_KEY")
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    global SEARCH_QUERIES, SEARCH_COUNTRIES, RESULTS_PER_QUERY
+
+    args = parse_args()
+    if args.queries:
+        SEARCH_QUERIES = [q.strip() for q in args.queries.split("|") if q.strip()]
+    if args.countries:
+        SEARCH_COUNTRIES = [c.strip().lower() for c in args.countries.split(",") if c.strip()]
+    if args.results_per_query:
+        RESULTS_PER_QUERY = args.results_per_query
+
+    rapidapi_key, openrouter_key = get_api_keys()
     if not rapidapi_key or not openrouter_key:
-        sys.exit("Faltan RAPIDAPI_KEY y/o OPENROUTER_API_KEY como variables de entorno.")
+        sys.exit(
+            "Faltan RAPIDAPI_KEY y/o OPENROUTER_API_KEY: exportalas como variables "
+            "de entorno o guardalas desde la pestana 'Claves API' del dashboard."
+        )
 
     init_db()
     _check_no_concurrent_run()
-    run_id = start_run()
+    run_id = start_run(SEARCH_QUERIES, SEARCH_COUNTRIES)
+    print(f"[run {run_id}] buscando {SEARCH_QUERIES} en {SEARCH_COUNTRIES}...", flush=True)
 
     try:
-        print("Buscando ofertas...")
         jobs = collect_all_jobs(rapidapi_key)
 
         seen_ids = load_seen_ids()
@@ -302,7 +393,7 @@ def main():
         good_matches = [j for j in scored if j["score"] >= SCORE_THRESHOLD]
 
         if good_matches:
-            save_active_jobs(good_matches)
+            save_active_jobs(good_matches, run_id)
             print(f"{len(good_matches)} ofertas nuevas anadidas a jobs.db.")
         else:
             print(f"Ninguna de las nuevas alcanza el umbral de encaje ({SCORE_THRESHOLD}).")
