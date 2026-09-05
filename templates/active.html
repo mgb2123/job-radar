@@ -4,6 +4,13 @@
 {% block content %}
 <h1>Ofertas activas</h1>
 
+<form method="get" class="lang-filter">
+  <label>
+    <input type="checkbox" name="hide_lang_mismatch" value="1" onchange="this.form.submit()" {% if hide_lang_mismatch %}checked{% endif %}>
+    Ocultar ofertas con idioma por encima de mi nivel
+  </label>
+</form>
+
 {% if not jobs %}
 <p class="empty">No hay ofertas activas pendientes de revisar.</p>
 {% else %}

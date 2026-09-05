@@ -29,6 +29,9 @@ th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #eee; }
 .badge.running { background: #b8860b; }
 .badge.applied { background: #2a9d5c; }
 .badge.rejected { background: #888; }
+.badge.lang-ok { background: #2a9d5c; }
+.badge.lang-warn { background: #c53030; }
+.badge.lang-neutral { background: #888; }
 
 .bar-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .3rem; }
 .bar-label { width: 4rem; color: #666; font-size: .85rem; }
@@ -54,3 +57,13 @@ th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #eee; }
 .add-list-form { display: inline-flex; gap: .4rem; align-items: center; margin: 0; }
 .add-list-form select, .add-list-form input[type=text] { display: inline-block; width: auto; margin: 0; padding: .2rem; }
 .add-list-form button { padding: .2rem .6rem; }
+
+.lang-checks { margin: .5rem 0; display: flex; flex-wrap: wrap; gap: .3rem; }
+.lang-checks .badge { margin: 0; }
+
+.lang-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .6rem; margin-bottom: .6rem; }
+.lang-field label { font-weight: 500; font-size: .85rem; margin-bottom: .15rem; }
+.lang-field select { width: 100%; box-sizing: border-box; padding: .3rem; }
+
+.lang-filter { margin-bottom: 1rem; }
+.lang-filter label { font-weight: 500; cursor: pointer; }

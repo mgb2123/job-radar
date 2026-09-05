@@ -18,6 +18,19 @@ from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
+NIVELES_MCER = ["A1", "A2", "B1", "B2", "C1", "C2"]
+
+
+def nivel_index(nivel: str | None) -> int | None:
+    """Indice 0-5 de un nivel MCER (A1..C2), o None si no es valido/esta vacio."""
+    if not nivel:
+        return None
+    try:
+        return NIVELES_MCER.index(nivel.strip().upper())
+    except ValueError:
+        return None
+
+
 DEFAULT_CONFIG = {
     "search_queries": [
         "robotics",
@@ -29,6 +42,16 @@ DEFAULT_CONFIG = {
     "results_per_query": 15,
     "openrouter_model": "google/gemini-2.5-flash-lite",
     "score_threshold": 65,
+    # Tu nivel MCER (A1-C2) en cada idioma, para comparar con lo que pida
+    # cada oferta. Vacio = no indicado (no se compara, solo se informa).
+    "idiomas_usuario": {
+        "ingles": "",
+        "frances": "",
+        "aleman": "",
+        "italiano": "",
+        "portugues": "",
+    },
+    "idiomas_usuario_otros": [],
     # Placeholder generico — tu perfil real se edita desde el dashboard
     # (pestana "Configuracion") y se guarda en config.json, que no se
     # versiona (ver .gitignore). Cuanto mas especifico sea tu CV_CONTEXT

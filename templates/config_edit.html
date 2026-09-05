@@ -38,6 +38,27 @@
   </div>
 
   <div class="field">
+    <label>Idiomas — tu nivel MCER (A1-C2)</label>
+    <p class="hint">Se compara con lo que pida cada oferta y se marca con un aviso en la tarjeta.</p>
+    <div class="lang-grid">
+      {% for idioma, etiqueta in [('ingles', 'Inglés'), ('frances', 'Francés'), ('aleman', 'Alemán'), ('italiano', 'Italiano'), ('portugues', 'Portugués')] %}
+      <div class="lang-field">
+        <label for="idioma_{{ idioma }}">{{ etiqueta }}</label>
+        <select id="idioma_{{ idioma }}" name="idioma_{{ idioma }}">
+          <option value="" {% if not cfg.idiomas_usuario.get(idioma) %}selected{% endif %}>—</option>
+          {% for nivel in ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] %}
+          <option value="{{ nivel }}" {% if cfg.idiomas_usuario.get(idioma) == nivel %}selected{% endif %}>{{ nivel }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+    <label for="idiomas_usuario_otros">Otros idiomas (uno por línea, formato «idioma: nivel»)</label>
+    <textarea id="idiomas_usuario_otros" name="idiomas_usuario_otros" rows="3">{% if cfg.idiomas_usuario_otros_raw is defined %}{{ cfg.idiomas_usuario_otros_raw }}{% else %}{% for o in cfg.idiomas_usuario_otros %}{{ o.idioma }}: {{ o.nivel }}
+{% endfor %}{% endif %}</textarea>
+  </div>
+
+  <div class="field">
     <label for="cv_context">CV / preferencias</label>
     <p class="hint">Cuanto más específico, mejor filtra el modelo.</p>
     <textarea id="cv_context" name="cv_context" rows="16">{{ cfg.cv_context }}</textarea>

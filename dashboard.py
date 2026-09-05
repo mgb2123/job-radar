@@ -24,6 +24,7 @@ Como correrlo:
   python3 dashboard.py
 """
 
+import json
 import os
 import re
 import sqlite3
@@ -37,7 +38,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, redirect, render_template, request, url_for
 
-from config import load_config, save_config
+from config import NIVELES_MCER, load_config, nivel_index, save_config
 from job_radar import DB_FILE, init_db
 from secrets_store import load_secrets, save_secrets
 
@@ -87,19 +88,69 @@ def all_lists(conn):
     return conn.execute("SELECT * FROM lists ORDER BY name").fetchall()
 
 
+def user_languages(cfg: dict) -> dict[str, str]:
+    """{idioma: nivel} del usuario, uniendo los idiomas fijos y los 'otros'."""
+    langs = {k: v for k, v in (cfg.get("idiomas_usuario") or {}).items() if v}
+    for entry in cfg.get("idiomas_usuario_otros") or []:
+        idioma = str(entry.get("idioma", "")).strip().lower()
+        nivel = str(entry.get("nivel", "")).strip().upper()
+        if idioma and nivel in NIVELES_MCER:
+            langs[idioma] = nivel
+    return langs
+
+
+def attach_language_flags(jobs: list[dict], user_langs: dict[str, str]) -> None:
+    """Anade 'idiomas_check' (lista de {idioma, nivel_requerido, nivel_usuario, cumple})
+    a cada job, comparando lo que pide la oferta con el nivel del usuario.
+    cumple es True/False, o None si el usuario no indico nivel para ese idioma."""
+    for j in jobs:
+        raw = j.get("idiomas_requeridos")
+        try:
+            required = json.loads(raw) if raw else []
+        except (json.JSONDecodeError, TypeError):
+            required = []
+        checks = []
+        for item in required:
+            if not isinstance(item, dict):
+                continue
+            idioma = str(item.get("idioma", "")).strip().lower()
+            nivel_req = str(item.get("nivel", "")).strip().upper()
+            if not idioma or nivel_req not in NIVELES_MCER:
+                continue
+            nivel_usuario = user_langs.get(idioma)
+            cumple = nivel_index(nivel_usuario) >= nivel_index(nivel_req) if nivel_usuario else None
+            checks.append({
+                "idioma": idioma,
+                "nivel_requerido": nivel_req,
+                "nivel_usuario": nivel_usuario,
+                "cumple": cumple,
+            })
+        j["idiomas_check"] = checks
+
+
 # ---------------------------------------------------------------------------
 # Activas — paridad con review_server.py
 # ---------------------------------------------------------------------------
 
 @app.route("/")
 def active():
+    hide_lang_mismatch = request.args.get("hide_lang_mismatch") == "1"
     with get_db() as conn:
         jobs = [dict(r) for r in conn.execute(
             "SELECT * FROM jobs WHERE status = 'active' ORDER BY score DESC"
         ).fetchall()]
         attach_lists(conn, jobs)
+        attach_language_flags(jobs, user_languages(load_config()))
         lists = all_lists(conn)
-    return render_template("active.html", jobs=jobs, all_lists=lists, active_tab="active")
+    if hide_lang_mismatch:
+        jobs = [j for j in jobs if not any(c["cumple"] is False for c in j["idiomas_check"])]
+    return render_template(
+        "active.html",
+        jobs=jobs,
+        all_lists=lists,
+        hide_lang_mismatch=hide_lang_mismatch,
+        active_tab="active",
+    )
 
 
 @app.route("/action", methods=["POST"])
@@ -161,6 +212,7 @@ def list_detail(list_id):
             (list_id,),
         ).fetchall()]
         attach_lists(conn, jobs)
+        attach_language_flags(jobs, user_languages(load_config()))
         lists = all_lists(conn)
     return render_template("list_detail.html", the_list=list_row, jobs=jobs, all_lists=lists, active_tab="lists")
 
@@ -287,6 +339,27 @@ def _validate_config(form) -> tuple[dict | None, list[str]]:
     if not cv_context:
         errors.append("El CV/preferencias no puede estar vacío.")
 
+    idiomas_usuario = {}
+    for idioma in ("ingles", "frances", "aleman", "italiano", "portugues"):
+        nivel = form.get(f"idioma_{idioma}", "").strip().upper()
+        if nivel and nivel not in NIVELES_MCER:
+            errors.append(f"Nivel de {idioma} no válido.")
+            nivel = ""
+        idiomas_usuario[idioma] = nivel
+
+    idiomas_usuario_otros = []
+    for line in form.get("idiomas_usuario_otros", "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        idioma, _, nivel = line.partition(":")
+        idioma = idioma.strip().lower()
+        nivel = nivel.strip().upper()
+        if not idioma or nivel not in NIVELES_MCER:
+            errors.append(f"Línea de 'otros idiomas' inválida: «{line}» (formato: idioma: nivel).")
+            continue
+        idiomas_usuario_otros.append({"idioma": idioma, "nivel": nivel})
+
     if errors:
         return None, errors
 
@@ -297,6 +370,8 @@ def _validate_config(form) -> tuple[dict | None, list[str]]:
         "openrouter_model": model,
         "score_threshold": score_threshold,
         "cv_context": cv_context,
+        "idiomas_usuario": idiomas_usuario,
+        "idiomas_usuario_otros": idiomas_usuario_otros,
     }, []
 
 
@@ -313,6 +388,11 @@ def config_edit():
                 "openrouter_model": request.form.get("openrouter_model", ""),
                 "score_threshold": request.form.get("score_threshold", ""),
                 "cv_context": request.form.get("cv_context", ""),
+                "idiomas_usuario": {
+                    idioma: request.form.get(f"idioma_{idioma}", "").strip().upper()
+                    for idioma in ("ingles", "frances", "aleman", "italiano", "portugues")
+                },
+                "idiomas_usuario_otros_raw": request.form.get("idiomas_usuario_otros", ""),
             }
             return render_template("config_edit.html", cfg=raw_cfg, errors=errors, saved=False, active_tab="config")
         save_config(cfg)
@@ -381,6 +461,7 @@ def run_page():
         log_lines = list(_run_state["log_lines"])
         run_id = _run_state["run_id"]
 
+    cfg = load_config()
     results = []
     with get_db() as conn:
         if run_id and not running:
@@ -388,9 +469,9 @@ def run_page():
                 "SELECT * FROM jobs WHERE run_id = ? ORDER BY score DESC", (run_id,)
             ).fetchall()]
             attach_lists(conn, results)
+            attach_language_flags(results, user_languages(cfg))
         lists = all_lists(conn)
 
-    cfg = load_config()
     return render_template(
         "run.html",
         running=running,

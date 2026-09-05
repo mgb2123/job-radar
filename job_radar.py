@@ -34,7 +34,7 @@ from pathlib import Path
 
 import requests
 
-from config import load_config
+from config import NIVELES_MCER, load_config
 from secrets_store import get_api_keys
 
 # ---------------------------------------------------------------------------
@@ -135,7 +135,17 @@ def score_job(job: dict, openrouter_key: str) -> dict:
 
 Evalua esta oferta de trabajo y responde SOLO con un JSON, sin texto adicional,
 con este formato exacto:
-{{"score": <0-100>, "razon": "<explicacion breve, 1-2 frases>", "requisitos": "<resumen breve de los requisitos/requerimientos del puesto segun la descripcion>", "ofrece": "<resumen breve de lo que ofrece la empresa (salario, beneficios, remoto, etc.); cadena vacia si la descripcion no lo menciona>"}}
+{{"score": <0-100>, "razon": "<explicacion breve, 1-2 frases>", "requisitos": "<resumen breve de los requisitos/requerimientos del puesto segun la descripcion>", "ofrece": "<resumen breve de lo que ofrece la empresa (salario, beneficios, remoto, etc.); cadena vacia si la descripcion no lo menciona>", "idiomas_requeridos": [{{"idioma": "<nombre del idioma en espanol, minusculas, ej. ingles/frances/aleman>", "nivel": "<A1|A2|B1|B2|C1|C2>"}}]}}
+
+Para "idiomas_requeridos":
+- Incluye solo idiomas que la oferta EXIJA explicitamente al candidato (no el
+  idioma en el que esta redactada la propia oferta).
+- Normaliza el nivel a la escala MCER A1-C2 aunque la oferta use otras
+  palabras: nativo/native -> C2; fluido/fluent/bilingue -> C1;
+  avanzado/advanced -> C1; profesional/professional working proficiency -> B2;
+  intermedio/intermediate -> B1; basico/basic -> A2. Si no se da un nivel
+  explicito, usa tu mejor estimacion segun el contexto.
+- Si la oferta no menciona ningun requisito de idioma, devuelve una lista vacia [].
 
 Oferta:
 Puesto: {title}
@@ -161,9 +171,21 @@ Descripcion: {description}
     try:
         result = json.loads(content)
     except json.JSONDecodeError:
-        return {"score": 0, "razon": "no se pudo evaluar (respuesta no valida)", "requisitos": "", "ofrece": ""}
+        return {
+            "score": 0,
+            "razon": "no se pudo evaluar (respuesta no valida)",
+            "requisitos": "",
+            "ofrece": "",
+            "idiomas_requeridos": [],
+        }
     result.setdefault("requisitos", "")
     result.setdefault("ofrece", "")
+    idiomas = result.get("idiomas_requeridos") or []
+    result["idiomas_requeridos"] = [
+        {"idioma": str(i.get("idioma", "")).strip().lower(), "nivel": str(i.get("nivel", "")).strip().upper()}
+        for i in idiomas
+        if isinstance(i, dict) and str(i.get("idioma", "")).strip() and str(i.get("nivel", "")).strip().upper() in NIVELES_MCER
+    ]
     return result
 
 
@@ -235,6 +257,7 @@ def init_db() -> None:
         _ensure_column(conn, "jobs", "country", "TEXT")
         _ensure_column(conn, "jobs", "requisitos", "TEXT")
         _ensure_column(conn, "jobs", "ofrece", "TEXT")
+        _ensure_column(conn, "jobs", "idiomas_requeridos", "TEXT")
         _ensure_column(conn, "runs", "queries", "TEXT")
         _ensure_column(conn, "runs", "countries", "TEXT")
 
@@ -245,8 +268,8 @@ def save_active_jobs(scored_jobs: list[dict], run_id: int | None = None) -> None
         conn.executemany(
             """
             INSERT OR IGNORE INTO jobs
-                (job_id, title, company, location, link, score, razon, status, first_seen, run_id, country, requisitos, ofrece)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+                (job_id, title, company, location, link, score, razon, status, first_seen, run_id, country, requisitos, ofrece, idiomas_requeridos)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -262,6 +285,7 @@ def save_active_jobs(scored_jobs: list[dict], run_id: int | None = None) -> None
                     j.get("job_country"),
                     j.get("requisitos") or "",
                     j.get("ofrece") or "",
+                    json.dumps(j.get("idiomas_requeridos") or [], ensure_ascii=False),
                 )
                 for j in scored_jobs
             ],

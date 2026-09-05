@@ -5,6 +5,20 @@
   <div class="razon">{{ j.razon }}</div>
   <p><a href="{{ j.link }}" target="_blank" rel="noopener">Ver oferta</a></p>
 
+  {% if j.idiomas_check %}
+  <div class="lang-checks">
+    {% for c in j.idiomas_check %}
+    {% if c.cumple is sameas true %}
+    <span class="badge lang-ok" title="Tu nivel de {{ c.idioma }} cumple el requisito">{{ c.idioma }}: {{ c.nivel_requerido }} ✓</span>
+    {% elif c.cumple is sameas false %}
+    <span class="badge lang-warn" title="Tu nivel de {{ c.idioma }} ({{ c.nivel_usuario }}) no llega al requisito">{{ c.idioma }}: {{ c.nivel_requerido }} — tu nivel: {{ c.nivel_usuario }}</span>
+    {% else %}
+    <span class="badge lang-neutral" title="No has indicado tu nivel de {{ c.idioma }}">{{ c.idioma }}: {{ c.nivel_requerido }} — nivel no indicado</span>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if j.requisitos or j.ofrece %}
   <details class="job-details">
     <summary>Requisitos y qué ofrecen</summary>
