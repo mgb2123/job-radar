@@ -375,8 +375,19 @@ def _validate_config(form) -> tuple[dict | None, list[str]]:
     }, []
 
 
+def _keys_context():
+    stored = load_secrets()
+    return {
+        "stored_rapidapi": bool(stored.get("rapidapi_key")),
+        "stored_openrouter": bool(stored.get("openrouter_key")),
+        "env_rapidapi": bool(os.environ.get("RAPIDAPI_KEY")),
+        "env_openrouter": bool(os.environ.get("OPENROUTER_API_KEY")),
+    }
+
+
 @app.route("/config", methods=["GET", "POST"])
 def config_edit():
+    saved_keys = request.args.get("saved_keys") == "1"
     if request.method == "POST":
         cfg, errors = _validate_config(request.form)
         if errors:
@@ -394,13 +405,13 @@ def config_edit():
                 },
                 "idiomas_usuario_otros_raw": request.form.get("idiomas_usuario_otros", ""),
             }
-            return render_template("config_edit.html", cfg=raw_cfg, errors=errors, saved=False, active_tab="config")
+            return render_template("config_edit.html", cfg=raw_cfg, errors=errors, saved=False, saved_keys=saved_keys, active_tab="config", **_keys_context())
         save_config(cfg)
         return redirect(url_for("config_edit", saved=1))
 
     cfg = load_config()
     saved = request.args.get("saved") == "1"
-    return render_template("config_edit.html", cfg=cfg, errors=[], saved=saved, active_tab="config")
+    return render_template("config_edit.html", cfg=cfg, errors=[], saved=saved, saved_keys=saved_keys, active_tab="config", **_keys_context())
 
 
 # ---------------------------------------------------------------------------
@@ -418,18 +429,9 @@ def keys_edit():
             "rapidapi_key": rapidapi_key or current.get("rapidapi_key", ""),
             "openrouter_key": openrouter_key or current.get("openrouter_key", ""),
         })
-        return redirect(url_for("keys_edit", saved=1))
+        return redirect(url_for("config_edit", saved_keys=1))
 
-    stored = load_secrets()
-    return render_template(
-        "keys_edit.html",
-        stored_rapidapi=bool(stored.get("rapidapi_key")),
-        stored_openrouter=bool(stored.get("openrouter_key")),
-        env_rapidapi=bool(os.environ.get("RAPIDAPI_KEY")),
-        env_openrouter=bool(os.environ.get("OPENROUTER_API_KEY")),
-        saved=request.args.get("saved") == "1",
-        active_tab="keys",
-    )
+    return redirect(url_for("config_edit"))
 
 
 # ---------------------------------------------------------------------------

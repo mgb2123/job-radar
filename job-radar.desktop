@@ -3,5 +3,6 @@ Type=Application
 Name=Job Radar
 Comment=Panel de radar de ofertas de empleo
 Exec=job-radar
+Icon=job-radar
 Terminal=false
 Categories=Utility;

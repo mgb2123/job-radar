@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>{% block title %}Job Radar{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="icon" href="{{ url_for('static', filename='icon.png') }}">
 </head>
 <body>
 <nav class="nav">
@@ -13,7 +14,6 @@
   <a href="{{ url_for('lists_page') }}" class="{{ 'active' if active_tab == 'lists' }}">Listas</a>
   <a href="{{ url_for('stats') }}" class="{{ 'active' if active_tab == 'stats' }}">Estadísticas</a>
   <a href="{{ url_for('config_edit') }}" class="{{ 'active' if active_tab == 'config' }}">Configuración</a>
-  <a href="{{ url_for('keys_edit') }}" class="{{ 'active' if active_tab == 'keys' }}">Claves API</a>
 </nav>
 {% block content %}{% endblock %}
 </body>

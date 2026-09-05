@@ -3,8 +3,9 @@ body { font-family: system-ui, sans-serif; max-width: 1400px; margin: 2rem auto;
 .job-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1rem; align-items: start; }
 .job-grid .job { margin-bottom: 0; }
 
-.nav { display: flex; gap: 1rem; border-bottom: 1px solid #ccc; padding-bottom: .8rem; margin-bottom: 1.5rem; }
-.nav a { text-decoration: none; color: #333; font-weight: 500; }
+.nav { display: flex; gap: 1.75rem; border-bottom: 1px solid #ccc; padding-bottom: .8rem; margin-bottom: 1.5rem; }
+.nav a { text-decoration: none; color: #333; font-weight: 500; padding: .2rem 0; }
+.nav a:hover { color: #06c; }
 .nav a.active { color: #06c; border-bottom: 2px solid #06c; padding-bottom: .8rem; margin-bottom: -.85rem; }
 
 .job { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
@@ -47,7 +48,17 @@ th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #eee; }
 .field label { font-weight: 600; display: block; margin-bottom: .2rem; }
 .hint { color: #666; font-size: .85rem; margin: 0 0 .3rem; }
 
-.form-panel { max-width: 640px; }
+.form-panel { max-width: 900px; }
+.form-panel + h2 { margin-top: 2rem; }
+
+.grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem 1.5rem; align-items: start; }
+.grid-form .field { margin-bottom: 0; }
+.grid-form .field-full { grid-column: 1 / -1; }
+.grid-form > button { grid-column: 1 / -1; justify-self: start; }
+
+@media (max-width: 640px) {
+  .grid-form { grid-template-columns: 1fr; }
+}
 
 #log { background: #111; color: #ddd; padding: 1rem; border-radius: 6px; min-height: 200px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; }
 

@@ -10,8 +10,8 @@
 </div>
 {% endif %}
 
-<form method="post" class="form-panel">
-  <div class="field">
+<form method="post" class="form-panel grid-form">
+  <div class="field field-full">
     <label for="search_queries">Búsquedas (una por línea)</label>
     <textarea id="search_queries" name="search_queries" rows="6">{{ cfg.search_queries | join('\n') }}</textarea>
   </div>
@@ -37,7 +37,7 @@
     <input type="number" id="score_threshold" name="score_threshold" min="0" max="100" value="{{ cfg.score_threshold }}">
   </div>
 
-  <div class="field">
+  <div class="field field-full">
     <label>Idiomas — tu nivel MCER (A1-C2)</label>
     <p class="hint">Se compara con lo que pida cada oferta y se marca con un aviso en la tarjeta.</p>
     <div class="lang-grid">
@@ -58,10 +58,46 @@
 {% endfor %}{% endif %}</textarea>
   </div>
 
-  <div class="field">
+  <div class="field field-full">
     <label for="cv_context">CV / preferencias</label>
     <p class="hint">Cuanto más específico, mejor filtra el modelo.</p>
     <textarea id="cv_context" name="cv_context" rows="16">{{ cfg.cv_context }}</textarea>
+  </div>
+
+  <button type="submit">Guardar</button>
+</form>
+
+<h2>Claves API</h2>
+<p class="hint">
+  Se guardan localmente en <code>secrets.json</code> (no se suben a git) y
+  tienen prioridad sobre cualquier variable de entorno. Si nunca guardas
+  nada aquí, se usa <code>RAPIDAPI_KEY</code>/<code>OPENROUTER_API_KEY</code>
+  del entorno como respaldo (útil para el cron).
+</p>
+
+{% if saved_keys %}<p class="badge ok">Guardado</p>{% endif %}
+
+<form method="post" action="{{ url_for('keys_edit') }}" class="form-panel grid-form">
+  <div class="field">
+    <label for="rapidapi_key">RapidAPI Key</label>
+    <p class="hint">
+      {% if stored_rapidapi %}Guardada aquí ✓ — deja en blanco para no cambiarla.
+      {% elif env_rapidapi %}No guardada aquí; usando la variable de entorno como respaldo. Pega una clave para que esta tenga prioridad.
+      {% else %}No configurada todavía.{% endif %}
+    </p>
+    <input type="password" id="rapidapi_key" name="rapidapi_key" autocomplete="off"
+           placeholder="{{ 'dejar en blanco para no cambiar' if stored_rapidapi else 'pega tu key aquí' }}">
+  </div>
+
+  <div class="field">
+    <label for="openrouter_key">OpenRouter API Key</label>
+    <p class="hint">
+      {% if stored_openrouter %}Guardada aquí ✓ — deja en blanco para no cambiarla.
+      {% elif env_openrouter %}No guardada aquí; usando la variable de entorno como respaldo. Pega una clave para que esta tenga prioridad.
+      {% else %}No configurada todavía.{% endif %}
+    </p>
+    <input type="password" id="openrouter_key" name="openrouter_key" autocomplete="off"
+           placeholder="{{ 'dejar en blanco para no cambiar' if stored_openrouter else 'pega tu key aquí' }}">
   </div>
 
   <button type="submit">Guardar</button>

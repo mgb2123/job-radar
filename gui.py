@@ -17,6 +17,7 @@ Tambien puedes copiar job-radar.desktop a ~/.local/share/applications/
 para tener un icono de app normal en tu escritorio/menu.
 """
 
+import os
 import socket
 import threading
 import time
@@ -24,6 +25,8 @@ import time
 import webview
 
 import dashboard
+
+ICON_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "static", "icon.png")
 
 
 def _wait_for_server(host: str, port: int, timeout: float = 5.0) -> None:
@@ -51,7 +54,7 @@ def main() -> None:
         height=880,
         min_size=(900, 600),
     )
-    webview.start()
+    webview.start(icon=ICON_PATH)
 
 
 if __name__ == "__main__":
