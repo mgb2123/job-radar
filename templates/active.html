@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Ofertas activas{% endblock %}
+{% block content %}
+<h1>Ofertas activas</h1>
+
+{% if not jobs %}
+<p class="empty">No hay ofertas activas pendientes de revisar.</p>
+{% else %}
+{% for j in jobs %}
+<div class="job">
+  <h3>{{ j.title }} — {{ j.company }} (score: {{ j.score }})</h3>
+  <div class="meta">{{ j.location or "N/D" }} · visto: {{ j.first_seen or "" }}</div>
+  <div class="razon">{{ j.razon }}</div>
+  <p><a href="{{ j.link }}" target="_blank" rel="noopener">Ver oferta</a></p>
+  <form method="post" action="{{ url_for('action') }}">
+    <input type="hidden" name="job_id" value="{{ j.job_id }}">
+    <input type="hidden" name="action" value="applied">
+    <button type="submit">Ya postulé</button>
+  </form>
+  <form method="post" action="{{ url_for('action') }}">
+    <input type="hidden" name="job_id" value="{{ j.job_id }}">
+    <input type="hidden" name="action" value="rejected">
+    <textarea name="feedback" rows="2" placeholder="¿Por qué no te interesa? (opcional)"></textarea>
+    <button type="submit">No interesado</button>
+  </form>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

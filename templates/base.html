@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}Job Radar{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<nav class="nav">
+  <a href="{{ url_for('active') }}" class="{{ 'active' if active_tab == 'active' }}">Activas</a>
+  <a href="{{ url_for('run_page') }}" class="{{ 'active' if active_tab == 'run' }}">Lanzar búsqueda</a>
+  <a href="{{ url_for('history') }}" class="{{ 'active' if active_tab == 'history' }}">Historial</a>
+  <a href="{{ url_for('stats') }}" class="{{ 'active' if active_tab == 'stats' }}">Estadísticas</a>
+  <a href="{{ url_for('config_edit') }}" class="{{ 'active' if active_tab == 'config' }}">Configuración</a>
+</nav>
+{% block content %}{% endblock %}
+</body>
+</html>

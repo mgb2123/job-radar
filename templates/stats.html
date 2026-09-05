@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Estadísticas{% endblock %}
+{% block content %}
+<h1>Estadísticas</h1>
+
+<h2>Ofertas por estado</h2>
+<p>
+  Activas: <strong>{{ counts.active or 0 }}</strong> ·
+  Aplicadas: <strong>{{ counts.applied or 0 }}</strong> ·
+  Rechazadas: <strong>{{ counts.rejected or 0 }}</strong>
+</p>
+
+<h2>Distribución de scores</h2>
+{% if not buckets %}
+<p class="empty">Todavía no hay ofertas puntuadas.</p>
+{% else %}
+{% for bucket, count in buckets %}
+<div class="bar-row">
+  <div class="bar-label">{{ bucket }}-{{ bucket + 9 }}</div>
+  <div class="bar-track"><div class="bar-fill" style="width: {{ (count / max_count * 100) | round(1) }}%"></div></div>
+  <div>{{ count }}</div>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2>Última ejecución</h2>
+{% if last_run %}
+<p>
+  {{ last_run.started_at }}
+  <span class="badge {{ last_run.status }}">{{ last_run.status }}</span><br>
+  Encontradas: {{ last_run.jobs_found if last_run.jobs_found is not none else '—' }} ·
+  Nuevas: {{ last_run.jobs_new if last_run.jobs_new is not none else '—' }} ·
+  Guardadas: {{ last_run.jobs_saved if last_run.jobs_saved is not none else '—' }}
+  {% if last_run.error %}<br><span class="errors">{{ last_run.error }}</span>{% endif %}
+</p>
+{% elif last_seen %}
+<p>Sin registro de ejecuciones todavía. Última oferta vista: {{ last_seen }}.</p>
+{% else %}
+<p class="empty">Todavía no se ha ejecutado ninguna búsqueda.</p>
+{% endif %}
+
+{% if recent_runs %}
+<h3>Últimas ejecuciones</h3>
+<table>
+  <thead><tr><th>Inicio</th><th>Estado</th><th>Encontradas</th><th>Nuevas</th><th>Guardadas</th></tr></thead>
+  <tbody>
+  {% for r in recent_runs %}
+    <tr>
+      <td>{{ r.started_at }}</td>
+      <td><span class="badge {{ r.status }}">{{ r.status }}</span></td>
+      <td>{{ r.jobs_found if r.jobs_found is not none else '—' }}</td>
+      <td>{{ r.jobs_new if r.jobs_new is not none else '—' }}</td>
+      <td>{{ r.jobs_saved if r.jobs_saved is not none else '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

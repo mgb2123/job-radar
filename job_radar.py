@@ -32,63 +32,21 @@ from pathlib import Path
 
 import requests
 
+from config import load_config
+
 # ---------------------------------------------------------------------------
-# CONFIGURACION — ajusta esto a tu gusto
+# CONFIGURACION — editable desde el dashboard (pestana "Configuracion") o a
+# mano en config.json. Sin config.json, se usan los valores por defecto de
+# config.py:DEFAULT_CONFIG (mismo comportamiento que antes de esta migracion).
 # ---------------------------------------------------------------------------
 
-SEARCH_QUERIES = [
-    "robotics",
-    "automation engineer",
-    "computer vision",
-    "ROS2",
-    "perception engineer",
-    "SLAM",
-    "motion planning",
-    "industrial automation engineer",
-    "mechatronics engineer",
-]
-SEARCH_COUNTRIES = ["es", "de", "nl", "uk", "fr"]  # codigos ISO pais para la API (UE)
-RESULTS_PER_QUERY = 15
-
-# Modelo de OpenRouter para el filtrado (barato y rapido; sube de gama si quieres)
-OPENROUTER_MODEL = "google/gemini-2.5-flash-lite"
-
-# Tu CV / preferencias resumidas. Cuanto mas especifico, mejor filtra el modelo.
-# EJEMPLO: sustituye este bloque por tu propio perfil antes de usarlo.
-CV_CONTEXT = """
-Ingeniero de software (Grado en Ingenieria Informatica, 2020-2024).
-Stack: Python, JavaScript/TypeScript, Docker, Linux, AWS, GitHub, APIs REST,
-bases de datos SQL/NoSQL. Ingles B2.
-Proyecto final: aplicacion web de gestion de tareas con backend en Python
-y frontend en React, desplegada en AWS.
-Experiencia: practicas de desarrollo backend en una startup (Python, APIs
-REST, PostgreSQL, 6 meses); proyecto universitario de automatizacion de
-tests con Selenium.
-Perfil: aprende rapido herramientas nuevas, valida decisiones tecnicas con
-mediciones reales, trabaja de forma autonoma en problemas abiertos.
-
-Nivel: busco sobre todo puestos junior / entry-level / trainee / recien
-titulado (soy junior de verdad, no finjas experiencia que no tengo). Puntua
-alto los junior con buen encaje tecnico. Un puesto mid tambien vale y puede
-puntuar alto si el encaje tecnico es muy bueno, pero si pide varios anos
-de experiencia especifica o responsabilidades claramente senior, puntua mas
-bajo aunque el area encaje.
-
-Busco: no solo un area concreta, tengo varios intereses y quiero mantener
-opciones abiertas como junior. Encajan bien: (1) desarrollo backend/API,
-(2) desarrollo frontend, (3) DevOps/cloud basico, (4) datos/automatizacion.
-No hace falta que la empresa sea top-tier ni el puesto sea "nivel alto";
-prefiero roles con trabajo tecnico real (no solo gestion), buen equipo y
-donde se aprenda, por encima del prestigio de la empresa.
-
-Ubicacion: Espana y resto de la Union Europea (sin lio de visado como
-ciudadano UE). Por ahora prefiero no salir de la UE — descarta o puntua bajo
-ofertas fuera de la UE aunque el resto encaje. Idiomas: espanol e ingles.
-
-Evitar / puntuar bajo aunque coincidan palabras clave: puestos puramente
-comerciales o de soporte sin componente tecnico, aunque el titulo mencione
-tecnologia de forma superficial.
-"""
+_CFG = load_config()
+SEARCH_QUERIES = _CFG["search_queries"]
+SEARCH_COUNTRIES = _CFG["search_countries"]  # codigos ISO pais para la API (UE)
+RESULTS_PER_QUERY = _CFG["results_per_query"]
+OPENROUTER_MODEL = _CFG["openrouter_model"]
+CV_CONTEXT = _CFG["cv_context"]
+SCORE_THRESHOLD = _CFG["score_threshold"]
 
 SEEN_FILE = Path(__file__).parent / "seen_jobs.json"
 DB_FILE = Path(__file__).parent / "jobs.db"
@@ -212,6 +170,21 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
+                pid INTEGER,
+                jobs_found INTEGER,
+                jobs_new INTEGER,
+                jobs_saved INTEGER,
+                error TEXT
+            )
+            """
+        )
 
 
 def save_active_jobs(scored_jobs: list[dict]) -> None:
@@ -245,6 +218,54 @@ def count_active_jobs() -> int:
 
 
 # ---------------------------------------------------------------------------
+# 5. CONTROL DE EJECUCIONES — evita correr dos busquedas en paralelo
+#    (protege tanto cron+cron como cron+dashboard como dashboard+dashboard)
+# ---------------------------------------------------------------------------
+
+def start_run() -> int:
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.execute(
+            "INSERT INTO runs (started_at, status, pid) VALUES (?, 'running', ?)",
+            (datetime.now().isoformat(timespec="seconds"), os.getpid()),
+        )
+        return cur.lastrowid
+
+
+def finish_run(run_id: int, status: str, jobs_found=None, jobs_new=None, jobs_saved=None, error=None) -> None:
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(
+            """
+            UPDATE runs
+            SET finished_at = ?, status = ?, jobs_found = ?, jobs_new = ?, jobs_saved = ?, error = ?
+            WHERE id = ?
+            """,
+            (datetime.now().isoformat(timespec="seconds"), status, jobs_found, jobs_new, jobs_saved, error, run_id),
+        )
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _check_no_concurrent_run() -> None:
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, pid FROM runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    if row is None:
+        return
+    if row["pid"] and _pid_alive(row["pid"]):
+        sys.exit(f"Ya hay una busqueda en curso (run {row['id']}, pid {row['pid']}).")
+    # el proceso murio sin marcar su propio run como terminado (crash, kill, etc.)
+    finish_run(row["id"], "error", error="proceso interrumpido (pid ya no existe)")
+
+
+# ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
 
@@ -255,37 +276,48 @@ def main():
         sys.exit("Faltan RAPIDAPI_KEY y/o OPENROUTER_API_KEY como variables de entorno.")
 
     init_db()
+    _check_no_concurrent_run()
+    run_id = start_run()
 
-    print("Buscando ofertas...")
-    jobs = collect_all_jobs(rapidapi_key)
+    try:
+        print("Buscando ofertas...")
+        jobs = collect_all_jobs(rapidapi_key)
 
-    seen_ids = load_seen_ids()
-    new_jobs = [j for j in jobs if j.get("job_id") not in seen_ids]
-    print(f"{len(jobs)} ofertas encontradas, {len(new_jobs)} nuevas.")
+        seen_ids = load_seen_ids()
+        new_jobs = [j for j in jobs if j.get("job_id") not in seen_ids]
+        print(f"{len(jobs)} ofertas encontradas, {len(new_jobs)} nuevas.")
 
-    if not new_jobs:
-        print("Nada nuevo esta vez.")
-        return
+        if not new_jobs:
+            print("Nada nuevo esta vez.")
+            finish_run(run_id, "ok", jobs_found=len(jobs), jobs_new=0, jobs_saved=0)
+            return
 
-    print("Evaluando encaje con tu CV via OpenRouter...")
-    scored = []
-    for j in new_jobs:
-        result = score_job(j, openrouter_key)
-        scored.append({**j, **result})
+        print("Evaluando encaje con tu CV via OpenRouter...")
+        scored = []
+        for j in new_jobs:
+            result = score_job(j, openrouter_key)
+            scored.append({**j, **result})
 
-    # solo nos interesan matches con encaje minimo razonable
-    good_matches = [j for j in scored if j["score"] >= 65]
+        # solo nos interesan matches con encaje minimo razonable
+        good_matches = [j for j in scored if j["score"] >= SCORE_THRESHOLD]
 
-    if good_matches:
-        save_active_jobs(good_matches)
-        print(f"{len(good_matches)} ofertas nuevas anadidas a jobs.db.")
-    else:
-        print("Ninguna de las nuevas alcanza el umbral de encaje (65).")
+        if good_matches:
+            save_active_jobs(good_matches)
+            print(f"{len(good_matches)} ofertas nuevas anadidas a jobs.db.")
+        else:
+            print(f"Ninguna de las nuevas alcanza el umbral de encaje ({SCORE_THRESHOLD}).")
 
-    print(f"Ofertas activas pendientes de revisar: {count_active_jobs()}")
-    print("Revisalas con: python3 review_server.py")
+        print(f"Ofertas activas pendientes de revisar: {count_active_jobs()}")
+        print("Revisalas con: python3 dashboard.py")
 
-    save_seen_ids(seen_ids | {j.get("job_id") for j in new_jobs if j.get("job_id")})
+        save_seen_ids(seen_ids | {j.get("job_id") for j in new_jobs if j.get("job_id")})
+
+        finish_run(run_id, "ok", jobs_found=len(jobs), jobs_new=len(new_jobs), jobs_saved=len(good_matches))
+    except SystemExit:
+        raise
+    except Exception as e:
+        finish_run(run_id, "error", error=str(e))
+        raise
 
 
 if __name__ == "__main__":

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Lanzar búsqueda{% endblock %}
+{% block content %}
+<h1>Lanzar búsqueda</h1>
+
+<form method="post" action="{{ url_for('run_start') }}">
+  <button type="submit" id="start-btn" {{ 'disabled' if running }}>{{ 'Búsqueda en curso…' if running else 'Buscar ahora' }}</button>
+</form>
+
+<h2>Log</h2>
+<pre id="log">{{ log_lines | join('\n') }}</pre>
+
+<script>
+  window.INITIAL_LOG_COUNT = {{ log_lines | length }};
+  window.INITIAL_RUNNING = {{ 'true' if running else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='run.js') }}"></script>
+{% endblock %}

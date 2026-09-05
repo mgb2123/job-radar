@@ -1,0 +1,40 @@
+body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+
+.nav { display: flex; gap: 1rem; border-bottom: 1px solid #ccc; padding-bottom: .8rem; margin-bottom: 1.5rem; }
+.nav a { text-decoration: none; color: #333; font-weight: 500; }
+.nav a.active { color: #06c; border-bottom: 2px solid #06c; padding-bottom: .8rem; margin-bottom: -.85rem; }
+
+.job { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.job h3 { margin: 0 0 .3rem; }
+.meta { color: #666; font-size: .9rem; margin-bottom: .5rem; }
+.razon { margin-bottom: .8rem; }
+.feedback { margin-top: .5rem; font-style: italic; color: #444; }
+
+form { display: inline-block; vertical-align: top; margin-right: .5rem; }
+textarea, input[type=text], input[type=number] { display: block; width: 100%; box-sizing: border-box; margin: .4rem 0; font-family: inherit; padding: .4rem; }
+button { cursor: pointer; padding: .4rem .8rem; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+
+.empty { color: #666; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #eee; }
+
+.badge { display: inline-block; padding: .1rem .5rem; border-radius: 4px; font-size: .85rem; color: #fff; }
+.badge.ok { background: #2a9d5c; }
+.badge.error { background: #c53030; }
+.badge.running { background: #b8860b; }
+.badge.applied { background: #2a9d5c; }
+.badge.rejected { background: #888; }
+
+.bar-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .3rem; }
+.bar-label { width: 4rem; color: #666; font-size: .85rem; }
+.bar-track { flex: 1; background: #eee; border-radius: 4px; overflow: hidden; height: 1rem; }
+.bar-fill { background: #06c; height: 100%; }
+
+.errors { color: #c53030; margin-bottom: 1rem; }
+.field { margin-bottom: 1.2rem; }
+.field label { font-weight: 600; display: block; margin-bottom: .2rem; }
+.hint { color: #666; font-size: .85rem; margin: 0 0 .3rem; }
+
+#log { background: #111; color: #ddd; padding: 1rem; border-radius: 6px; min-height: 200px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; }

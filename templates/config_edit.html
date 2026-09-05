@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Configuración{% endblock %}
+{% block content %}
+<h1>Configuración</h1>
+
+{% if saved %}<p class="badge ok">Guardado</p>{% endif %}
+{% if errors %}
+<div class="errors">
+  <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<form method="post">
+  <div class="field">
+    <label for="search_queries">Búsquedas (una por línea)</label>
+    <textarea id="search_queries" name="search_queries" rows="6">{{ cfg.search_queries | join('\n') }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="search_countries">Países (códigos ISO, uno por línea)</label>
+    <p class="hint">ej. es, de, nl, uk, fr</p>
+    <textarea id="search_countries" name="search_countries" rows="3">{{ cfg.search_countries | join('\n') }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="results_per_query">Resultados por búsqueda</label>
+    <input type="number" id="results_per_query" name="results_per_query" min="1" max="100" value="{{ cfg.results_per_query }}">
+  </div>
+
+  <div class="field">
+    <label for="openrouter_model">Modelo de OpenRouter</label>
+    <input type="text" id="openrouter_model" name="openrouter_model" value="{{ cfg.openrouter_model }}">
+  </div>
+
+  <div class="field">
+    <label for="score_threshold">Umbral de score (0-100)</label>
+    <input type="number" id="score_threshold" name="score_threshold" min="0" max="100" value="{{ cfg.score_threshold }}">
+  </div>
+
+  <div class="field">
+    <label for="cv_context">CV / preferencias</label>
+    <p class="hint">Cuanto más específico, mejor filtra el modelo.</p>
+    <textarea id="cv_context" name="cv_context" rows="16">{{ cfg.cv_context }}</textarea>
+  </div>
+
+  <button type="submit">Guardar</button>
+</form>
+{% endblock %}
