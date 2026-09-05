@@ -1,109 +1,113 @@
+🌐 English | [Español](README.es.md)
+
 # Job Radar
 
-Radar automático de ofertas de empleo, pensado para correr a diario (por
-ejemplo por cron en una Raspberry Pi) con un dashboard web local para
-manejar toda la lógica desde un mismo sitio: revisar ofertas, lanzar
-búsquedas manuales, editar tu CV/preferencias y ver estadísticas.
+Automatic job-offer radar, meant to run daily (e.g. via cron on a Raspberry
+Pi) with a local web dashboard to manage everything from one place:
+reviewing offers, launching manual searches, editing your CV/preferences,
+and viewing stats.
 
-## Qué hace
+## What it does
 
-1. **Busca** ofertas nuevas vía [JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
-   (RapidAPI), que agrega LinkedIn, Indeed, Glassdoor y ZipRecruiter a partir
-   de Google for Jobs.
-2. **Descarta** las que ya se vieron en ejecuciones anteriores (`seen_jobs.json`,
-   local, no versionado).
-3. **Puntúa** cada oferta nueva con un LLM vía OpenRouter, comparándola con tu
-   CV/preferencias (editables desde el dashboard), y guarda un score 0-100
-   con la razón.
-4. **Guarda** las ofertas que superan el umbral configurado en `jobs.db`
-   (SQLite) con `status='active'`.
-5. **Revísalas y manéjalo todo** con `dashboard.py`: marcar ofertas como "ya
-   postulé"/"no interesado", lanzar búsquedas manuales con log en vivo, ver
-   historial/estadísticas y editar la configuración — todo en un mismo sitio.
+1. **Searches** for new job offers via [JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
+   (RapidAPI), which aggregates LinkedIn, Indeed, Glassdoor and ZipRecruiter
+   through Google for Jobs.
+2. **Discards** offers already seen in previous runs (`seen_jobs.json`,
+   local, not version-controlled).
+3. **Scores** each new offer with an LLM via OpenRouter, comparing it
+   against your CV/preferences (editable from the dashboard), and stores a
+   0-100 score with the reasoning.
+4. **Saves** offers above the configured threshold into `jobs.db` (SQLite)
+   with `status='active'`.
+5. **Review and manage everything** with `dashboard.py`: mark offers as
+   "applied"/"not interested", launch manual searches with a live log, view
+   history/stats, and edit the configuration — all in one place.
 
-## Uso
+## Usage
 
 ```bash
-export RAPIDAPI_KEY="tu_key_de_rapidapi"
-export OPENROUTER_API_KEY="tu_key_de_openrouter"
+export RAPIDAPI_KEY="your_rapidapi_key"
+export OPENROUTER_API_KEY="your_openrouter_key"
 pip install -r requirements.txt --break-system-packages
 
-python3 job_radar.py    # busca, puntúa y guarda matches nuevos (cron)
-python3 dashboard.py    # abre http://127.0.0.1:8765 — panel completo
+python3 job_radar.py    # search, score, and save new matches (cron)
+python3 dashboard.py    # open http://127.0.0.1:8765 — full dashboard
 ```
 
-### Automatizarlo (cron diario)
+### Automating it (daily cron)
 
 ```
-0 8 * * * cd /ruta/al/script && /usr/bin/python3 job_radar.py >> radar.log 2>&1
+0 8 * * * cd /path/to/script && /usr/bin/python3 job_radar.py >> radar.log 2>&1
 ```
 
-El dashboard no hace falta tenerlo abierto para que el cron funcione — o
-puedes lanzar la búsqueda a mano desde la pestaña "Lanzar búsqueda" en vez
-de esperar al cron. Ambos caminos comparten la misma guardia: no pueden
-correr dos búsquedas en paralelo.
+The dashboard doesn't need to be running for the cron job to work — or you
+can trigger a search manually from the "Run search" tab instead of waiting
+for the cron. Both paths share the same guard: two searches can't run in
+parallel.
 
-Dependencias: `requests` y `flask` (ver `requirements.txt`). Sin build ni
+Dependencies: `requests` and `flask` (see `requirements.txt`). No build, no
 tests.
 
-## Arquitectura
+## Architecture
 
-**Búsqueda y scoring** (`job_radar.py`), pipeline lineal:
+**Search and scoring** (`job_radar.py`), a linear pipeline:
 
-1. **Búsqueda** (`fetch_jobs`, `collect_all_jobs`) — llama a JSearch por cada
-   combinación de `SEARCH_QUERIES` × `SEARCH_COUNTRIES` (de `config.json`).
-2. **Dedupe** (`load_seen_ids`, `save_seen_ids`) — compara `job_id` contra
-   `seen_jobs.json` para no reprocesar ofertas ya vistas.
-3. **Scoring** (`score_job`) — envía título/empresa/descripción junto con el
-   contexto de tu CV a OpenRouter, pidiendo un JSON `{"score": 0-100, "razon": "..."}`.
+1. **Search** (`fetch_jobs`, `collect_all_jobs`) — calls JSearch for every
+   combination of `SEARCH_QUERIES` × `SEARCH_COUNTRIES` (from `config.json`).
+2. **Dedupe** (`load_seen_ids`, `save_seen_ids`) — compares `job_id` against
+   `seen_jobs.json` to avoid reprocessing offers already seen.
+3. **Scoring** (`score_job`) — sends title/company/description along with
+   your CV context to OpenRouter, requesting a JSON `{"score": 0-100, "razon": "..."}`.
 
-Las ofertas con `score >= SCORE_THRESHOLD` se guardan en `jobs.db` con
-`status='active'`. `main()` orquesta el flujo, registra cada ejecución en la
-tabla `runs` (para la guardia de concurrencia y las estadísticas) y persiste
-`seen_jobs.json` al final.
+Offers with `score >= SCORE_THRESHOLD` are saved to `jobs.db` with
+`status='active'`. `main()` orchestrates the flow, logs each run in the
+`runs` table (used by both the concurrency guard and the stats view), and
+persists `seen_jobs.json` at the end.
 
-**Dashboard** (`dashboard.py`, Flask) — servidor local en
-`127.0.0.1:8765` con cinco vistas:
+**Dashboard** (`dashboard.py`, Flask) — local server on `127.0.0.1:8765`
+with five views:
 
-- **Activas** (`/`, `/action`) — tarjetas de ofertas con score, igual que
-  antes: "Ya postulé"/"No interesado" (con feedback opcional).
-- **Lanzar búsqueda** (`/run`) — corre `job_radar.py` como subprocess bajo
-  demanda, con el log streameado en vivo (Server-Sent Events).
-- **Historial** (`/history`) — ofertas ya decididas, con su feedback.
-- **Estadísticas** (`/stats`) — contadores por estado, distribución de
-  scores y resultado de la última ejecución.
-- **Configuración** (`/config`) — editar búsquedas, países, umbral, modelo y
-  `CV_CONTEXT` sin tocar código; persiste en `config.json`.
+- **Active** (`/`, `/action`) — offer cards with score, same as before:
+  "Applied"/"Not interested" (with optional feedback).
+- **Run search** (`/run`) — runs `job_radar.py` as a subprocess on demand,
+  with its log streamed live (Server-Sent Events).
+- **History** (`/history`) — offers already decided on, with their feedback.
+- **Stats** (`/stats`) — counts by status, score distribution, and the
+  result of the last run.
+- **Configuration** (`/config`) — edit search queries, countries,
+  threshold, model and `CV_CONTEXT` without touching code; persists to
+  `config.json`.
 
-## Configuración
+## Configuration
 
-La configuración editable vive en `config.json` (generado/editado desde la
-pestaña "Configuración" del dashboard; si no existe, se usan los valores por
-defecto de `config.py:DEFAULT_CONFIG` y todo funciona igual que antes):
+The editable configuration lives in `config.json` (generated/edited from
+the dashboard's "Configuration" tab; if it doesn't exist yet, the defaults
+in `config.py:DEFAULT_CONFIG` are used and everything works as before):
 
-- `search_queries` / `search_countries` / `results_per_query` — qué buscar y
-  dónde.
-- `openrouter_model` — modelo usado para puntuar el encaje.
-- `score_threshold` — score mínimo para guardar una oferta como activa.
-- `cv_context` — resumen de perfil/preferencias que el LLM usa para evaluar
-  cada oferta. El feedback de "no interesado" no se inyecta automáticamente
-  en el prompt — revísalo de vez en cuando (pestaña Historial) y ajusta
-  `cv_context` a mano si detectas un patrón.
+- `search_queries` / `search_countries` / `results_per_query` — what to
+  search for and where.
+- `openrouter_model` — model used to score the fit.
+- `score_threshold` — minimum score for an offer to be saved as active.
+- `cv_context` — profile/preferences summary the LLM uses to evaluate each
+  offer. "Not interested" feedback is not automatically injected into the
+  prompt — review it occasionally (History tab) and adjust `cv_context` by
+  hand if you spot a pattern.
 
-`job_radar.py` solo lee `config.json` (nunca escribe) — solo el dashboard lo
-modifica, evitando carreras entre el cron y una edición concurrente.
+`job_radar.py` only **reads** `config.json` (never writes) — only the
+dashboard modifies it, avoiding races between the cron job and a concurrent
+edit.
 
-Las claves de API (`RAPIDAPI_KEY`, `OPENROUTER_API_KEY`) se leen solo de
-variables de entorno, nunca se guardan en `config.json` ni son editables
-desde la web.
+API keys (`RAPIDAPI_KEY`, `OPENROUTER_API_KEY`) are read only from
+environment variables, never saved to `config.json` or editable from the
+web.
 
-## Notas
+## Notes
 
-- `jobs.db`, `seen_jobs.json`, `config.json` y `reports/` son estado local
-  del usuario y no se versionan (ver `.gitignore`).
-- `dashboard.py` escucha solo en `127.0.0.1` por defecto — no expone nada
-  fuera de la máquina donde corre.
+- `jobs.db`, `seen_jobs.json`, `config.json` and `reports/` are local user
+  state and are not version-controlled (see `.gitignore`).
+- `dashboard.py` listens only on `127.0.0.1` by default — it exposes
+  nothing outside the machine it runs on.
 
-## Licencia
+## License
 
 [MIT](LICENSE).
